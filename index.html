@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>PitchMaster - Mobil Lagindelning</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         body {
@@ -16,6 +17,9 @@
         .soccer-gradient {
             background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
         }
+        .coach-gradient {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
         .glass-card {
             background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(10px);
@@ -25,9 +29,7 @@
         .badge-red { background: #ef4444; color: #fff; }
         .badge-blue { background: #3b82f6; color: #fff; }
 
-        button:active {
-            transform: scale(0.96);
-        }
+        button:active { transform: scale(0.96); }
 
         input, select {
             background: rgba(15, 23, 42, 0.8);
@@ -36,12 +38,110 @@
             font-size: 16px !important;
         }
 
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2);
             border-radius: 10px;
+        }
+
+        .player-absent { opacity: 0.4; }
+        .player-absent .player-name {
+            text-decoration: line-through;
+            text-decoration-color: rgba(239, 68, 68, 0.7);
+            text-decoration-thickness: 2px;
+        }
+
+        .draggable {
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 0.15s, background 0.15s, opacity 0.15s;
+        }
+        .draggable.dragging { opacity: 0.4; cursor: grabbing; }
+        .drag-clone {
+            position: fixed;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0.95;
+            transform: rotate(-2deg) scale(1.05);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+        }
+        .drop-zone.drag-over {
+            background: rgba(22, 163, 74, 0.15) !important;
+            border-color: rgba(22, 163, 74, 0.6) !important;
+        }
+        .coach-drop-zone.drag-over {
+            background: rgba(245, 158, 11, 0.2) !important;
+            border-color: rgba(245, 158, 11, 0.7) !important;
+        }
+
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 60;
+            display: flex; align-items: center; justify-content: center;
+            padding: 1rem;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background: #1e293b;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            width: 100%; max-width: 380px;
+            transform: scale(0.95);
+            transition: transform 0.2s;
+        }
+        .modal-backdrop.open .modal-content { transform: scale(1); }
+
+        /* Match mode */
+        .match-gradient {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+        .pitch-zone {
+            background:
+                linear-gradient(rgba(22, 163, 74, 0.15), rgba(22, 163, 74, 0.15)),
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 30px, transparent 30px, transparent 60px);
+            border: 2px solid rgba(22, 163, 74, 0.4);
+        }
+        .bench-zone {
+            background: rgba(245, 158, 11, 0.08);
+            border: 2px dashed rgba(245, 158, 11, 0.3);
+        }
+        .out-zone {
+            background: rgba(100, 116, 139, 0.08);
+            border: 2px dashed rgba(100, 116, 139, 0.3);
+        }
+        .player-slot {
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 0.15s, opacity 0.15s, background 0.15s;
+        }
+        .player-slot.dragging { opacity: 0.4; cursor: grabbing; }
+
+        /* Pitch view dots — ensure touch drags work cleanly on mobile */
+        .pitch-dot {
+            cursor: grab;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .pitch-dot:active { cursor: grabbing; }
+        /* The SVG itself should not pan/zoom under a finger */
+        svg[data-team-pitch] {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .timer-display {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
         }
         
         @media (max-width: 640px) {
@@ -52,20 +152,37 @@
 </head>
 <body class="min-h-screen pb-20">
 
-    <!-- Header -->
     <header class="soccer-gradient py-4 sm:py-8 px-4 text-center shadow-lg mb-4 sm:mb-8 sticky-header">
         <div class="max-w-4xl mx-auto flex items-center justify-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 sm:w-9 sm:h-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/><path d="M12 2v20"/><path d="M4.93 4.93 19.07 19.07"/><path d="m4.93 19.07 14.14-14.14"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 sm:w-9 sm:h-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7l4.7 3.4-1.8 5.5h-5.8l-1.8-5.5z"/><path d="M12 2v5"/><path d="m22 8.6-5.3 1.8"/><path d="m19.4 19.4-4.5-3.5"/><path d="m4.6 19.4 4.5-3.5"/><path d="M2 8.6l5.3 1.8"/></svg>
             <h1 class="text-2xl sm:text-4xl font-extrabold tracking-tight uppercase italic">PitchMaster</h1>
         </div>
     </header>
 
+    <!-- Mode toggle: Träning / Match -->
+    <div class="max-w-6xl mx-auto container-padding mb-4 sm:mb-6">
+        <div class="flex bg-slate-900/80 rounded-2xl p-1.5 gap-1">
+            <button onclick="setAppMode('training')" id="modeTraining" class="flex-1 py-3 text-sm font-black rounded-xl transition-all soccer-gradient text-white uppercase tracking-widest flex items-center justify-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Träning
+            </button>
+            <button onclick="setAppMode('match')" id="modeMatch" class="flex-1 py-3 text-sm font-black rounded-xl transition-all text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 2"/></svg>
+                Match
+            </button>
+        </div>
+    </div>
+
     <main class="max-w-6xl mx-auto container-padding grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
         
-        <!-- Sektion: Lägg till & Lista -->
         <div class="lg:col-span-4 space-y-6">
             
-            <section class="glass-card p-5 rounded-2xl shadow-xl">
+            <div class="flex bg-slate-900/80 rounded-2xl p-1.5 gap-1">
+                <button onclick="setRosterTab('players')" id="tabPlayers" class="flex-1 py-3 text-xs font-bold rounded-xl transition-all bg-green-600 text-white">SPELARE</button>
+                <button onclick="setRosterTab('coaches')" id="tabCoaches" class="flex-1 py-3 text-xs font-bold rounded-xl transition-all text-gray-400">TRÄNARE</button>
+            </div>
+
+            <section id="addPlayerSection" class="glass-card p-5 rounded-2xl shadow-xl">
                 <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
                     <span class="w-1.5 h-5 bg-green-500 rounded-full"></span>
                     Lägg till spelare
@@ -80,16 +197,53 @@
                 </div>
             </section>
 
-            <section class="glass-card p-5 rounded-2xl shadow-xl">
-                <div class="flex justify-between items-center mb-4">
+            <section id="addCoachSection" class="glass-card p-5 rounded-2xl shadow-xl hidden">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <span class="w-1.5 h-5 bg-amber-500 rounded-full"></span>
+                    Lägg till tränare
+                </h2>
+                <div class="flex flex-col gap-4">
+                    <input type="text" id="coachName" placeholder="Skriv namn..." class="w-full p-4 rounded-xl shadow-inner outline-none">
+                    <button onclick="addCoach()" class="h-12 coach-gradient rounded-xl text-white font-black uppercase text-xs tracking-widest active:brightness-90 transition-all flex items-center justify-center gap-2">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Lägg till
+                    </button>
+                </div>
+            </section>
+
+            <section id="playersListSection" class="glass-card p-5 rounded-2xl shadow-xl">
+                <div class="flex justify-between items-center mb-3">
                     <h2 class="text-lg font-bold flex items-center gap-2">
                         <span class="w-1.5 h-5 bg-green-500 rounded-full"></span>
-                        Truppen (<span id="playerCount">0</span>)
+                        Truppen (<span id="presentCount">0</span>/<span id="playerCount">0</span>)
                     </h2>
                     <button onclick="clearRoster()" class="text-[11px] font-bold text-red-400 uppercase">Rensa</button>
                 </div>
-                <div id="rosterList" class="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                    <p id="emptyState" class="text-gray-500 italic text-center py-6 text-sm">Inga spelare än</p>
+                <div class="flex gap-2 mb-3">
+                    <button onclick="setAllAttendance('players', true)" class="flex-1 py-2 text-[10px] font-bold rounded-lg bg-green-600/30 border border-green-500/40 text-green-300 uppercase tracking-wider active:bg-green-600/50">Alla här</button>
+                    <button onclick="setAllAttendance('players', false)" class="flex-1 py-2 text-[10px] font-bold rounded-lg bg-slate-700/40 border border-white/10 text-gray-400 uppercase tracking-wider active:bg-slate-700/60">Nollställ</button>
+                </div>
+                <p class="text-[10px] text-gray-500 mb-2 px-1">Tryck för att toggla närvaro · Långtryck för att redigera</p>
+                <div id="rosterList" class="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    <p class="text-gray-500 italic text-center py-6 text-sm">Inga spelare än</p>
+                </div>
+            </section>
+
+            <section id="coachesListSection" class="glass-card p-5 rounded-2xl shadow-xl hidden">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-lg font-bold flex items-center gap-2">
+                        <span class="w-1.5 h-5 bg-amber-500 rounded-full"></span>
+                        Tränare (<span id="presentCoachCount">0</span>/<span id="coachCount">0</span>)
+                    </h2>
+                    <button onclick="clearCoaches()" class="text-[11px] font-bold text-red-400 uppercase">Rensa</button>
+                </div>
+                <div class="flex gap-2 mb-3">
+                    <button onclick="setAllAttendance('coaches', true)" class="flex-1 py-2 text-[10px] font-bold rounded-lg bg-amber-600/30 border border-amber-500/40 text-amber-300 uppercase tracking-wider active:bg-amber-600/50">Alla här</button>
+                    <button onclick="setAllAttendance('coaches', false)" class="flex-1 py-2 text-[10px] font-bold rounded-lg bg-slate-700/40 border border-white/10 text-gray-400 uppercase tracking-wider active:bg-slate-700/60">Nollställ</button>
+                </div>
+                <p class="text-[10px] text-gray-500 mb-2 px-1">Tryck för att toggla närvaro · Långtryck för att redigera</p>
+                <div id="coachesList" class="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    <p class="text-gray-500 italic text-center py-6 text-sm">Inga tränare än</p>
                 </div>
             </section>
 
@@ -104,9 +258,11 @@
             </section>
         </div>
 
-        <!-- Sektion: Generering -->
         <div class="lg:col-span-8 space-y-6">
             
+            <!-- ===== TRAINING MODE ===== -->
+            <div id="trainingMode" class="space-y-6">
+
             <section class="glass-card p-5 rounded-2xl bg-slate-800/40 shadow-2xl">
                 <h2 class="text-lg font-bold mb-5 flex items-center gap-2">
                     <span class="w-1.5 h-5 bg-yellow-500 rounded-full"></span>
@@ -153,40 +309,313 @@
             <div id="resultsWrapper" class="hidden space-y-6">
                 <div class="flex flex-col gap-3 bg-slate-800/80 p-5 rounded-2xl border border-white/10 shadow-xl">
                     <input type="text" id="sessionName" placeholder="Namnge passet..." class="w-full p-3 text-sm rounded-xl outline-none">
-                    <button onclick="saveCurrentTeams()" class="w-full py-4 bg-yellow-500 text-black font-black uppercase text-xs tracking-widest rounded-xl flex items-center justify-center gap-2 active:bg-yellow-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        Spara historik
-                    </button>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="saveCurrentTeams()" class="py-4 bg-yellow-500 text-black font-black uppercase text-xs tracking-widest rounded-xl flex items-center justify-center gap-2 active:bg-yellow-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                            Spara
+                        </button>
+                        <button onclick="shareTeams()" id="shareBtn" class="py-4 bg-blue-500 text-white font-black uppercase text-xs tracking-widest rounded-xl flex items-center justify-center gap-2 active:bg-blue-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                            Dela
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-gray-500 text-center px-2">Dra spelare och tränare mellan lagen för att byta</p>
+                </div>
+
+                <div id="unassignedCoachesBar" class="bg-slate-800/60 p-4 rounded-2xl border border-amber-500/20 shadow-xl hidden">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-amber-400 flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            Otilldelade tränare
+                        </h3>
+                        <button onclick="toggleCoachMode()" id="coachModeBtn" class="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-700/40 border border-white/10 text-gray-300 flex items-center gap-1.5 active:bg-slate-700/60">
+                            <svg id="coachModeIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            <span id="coachModeLabel">Unik</span>
+                        </button>
+                    </div>
+                    <div id="unassignedCoachesList" class="coach-drop-zone drop-zone min-h-[44px] flex flex-wrap gap-2 p-2 rounded-xl border border-dashed border-white/10 bg-slate-900/20 transition-colors">
+                        <p class="text-[10px] text-gray-500 italic w-full text-center py-2">Inga tränare tillgängliga</p>
+                    </div>
                 </div>
                 
                 <div id="teamsContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
             </div>
+            </div>
+            <!-- ===== END TRAINING MODE ===== -->
+
+            <!-- ===== MATCH MODE ===== -->
+            <div id="matchMode" class="space-y-6 hidden">
+
+                <!-- Match setup -->
+                <section class="glass-card p-5 rounded-2xl bg-slate-800/40 shadow-2xl">
+                    <h2 class="text-lg font-bold mb-5 flex items-center gap-2">
+                        <span class="w-1.5 h-5 bg-blue-500 rounded-full"></span>
+                        Matchinställningar
+                    </h2>
+
+                    <div class="space-y-5">
+                        <div class="space-y-2">
+                            <span class="text-[11px] text-gray-400 font-extrabold uppercase tracking-widest">Matchnamn</span>
+                            <input type="text" id="matchName" placeholder="t.ex. Hemmamatch vs Lag X" class="w-full p-3 text-sm rounded-xl outline-none">
+                        </div>
+
+                        <div class="space-y-2">
+                            <span class="text-[11px] text-gray-400 font-extrabold uppercase tracking-widest">Format</span>
+                            <div class="grid grid-cols-4 gap-2">
+                                <button onclick="setMatchFormat(5)" data-format="5" class="match-format-btn h-12 rounded-xl border-2 border-white/10 text-gray-400 font-black uppercase text-[10px] tracking-wider transition-colors">5v5</button>
+                                <button onclick="setMatchFormat(7)" data-format="7" class="match-format-btn h-12 rounded-xl border-2 border-white/10 text-gray-400 font-black uppercase text-[10px] tracking-wider transition-colors">7v7</button>
+                                <button onclick="setMatchFormat(9)" data-format="9" class="match-format-btn h-12 rounded-xl border-2 border-white/10 text-gray-400 font-black uppercase text-[10px] tracking-wider transition-colors">9v9</button>
+                                <button onclick="setMatchFormat(11)" data-format="11" class="match-format-btn h-12 rounded-xl border-2 border-white/10 text-gray-400 font-black uppercase text-[10px] tracking-wider transition-colors">11v11</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="space-y-2">
+                                <span class="text-[11px] text-gray-400 font-extrabold uppercase tracking-widest">Antal lag</span>
+                                <input type="number" id="matchTeamCount" value="1" min="1" max="6" class="w-full p-3 rounded-xl text-center text-lg font-black outline-none">
+                            </div>
+                            <div class="space-y-2">
+                                <span class="text-[11px] text-gray-400 font-extrabold uppercase tracking-widest">Halvlekar</span>
+                                <input type="number" id="matchHalves" value="2" min="1" max="4" class="w-full p-3 rounded-xl text-center text-lg font-black outline-none">
+                            </div>
+                            <div class="space-y-2">
+                                <span class="text-[11px] text-gray-400 font-extrabold uppercase tracking-widest">Min / halvlek</span>
+                                <input type="number" id="matchHalfLength" value="20" min="1" max="60" class="w-full p-3 rounded-xl text-center text-lg font-black outline-none">
+                            </div>
+                        </div>
+
+                        <button onclick="buildMatchLineup()" class="w-full match-gradient py-5 rounded-2xl font-black text-lg uppercase tracking-widest shadow-2xl active:brightness-90 transition-all">
+                            Bygg startuppställning
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Match lineup + timer + log -->
+                <div id="matchLineupWrapper" class="space-y-6 hidden">
+
+                    <!-- Timer card -->
+                    <section class="glass-card p-5 rounded-2xl shadow-2xl">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest" id="matchPeriodLabel">1:a halvlek</div>
+                                <div id="matchTimer" class="timer-display text-5xl font-black mt-1">00:00</div>
+                            </div>
+                            <div class="flex flex-col items-end">
+                                <div class="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest">Av</div>
+                                <div id="matchTimerMax" class="timer-display text-xl font-black text-gray-300">20:00</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="toggleMatchTimer()" id="timerToggleBtn" class="py-3 bg-green-600 text-white font-black uppercase text-xs tracking-widest rounded-xl active:bg-green-700 flex items-center justify-center gap-1.5">
+                                <svg id="timerToggleIcon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                <span id="timerToggleLabel">Start</span>
+                            </button>
+                            <button onclick="nextMatchPeriod()" class="py-3 bg-blue-500 text-white font-black uppercase text-xs tracking-widest rounded-xl active:bg-blue-600 flex items-center justify-center gap-1.5">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                                Nästa
+                            </button>
+                            <button onclick="resetMatchTimer()" class="py-3 bg-slate-700/60 text-gray-300 font-black uppercase text-xs tracking-widest rounded-xl border border-white/10 active:bg-slate-700 flex items-center justify-center gap-1.5">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                                Nollst.
+                            </button>
+                        </div>
+                    </section>
+
+                    <!-- Coaches bar (match version) -->
+                    <!-- Unassigned coaches bar (drag onto a team) -->
+                    <div id="matchCoachesBar" class="bg-slate-800/60 p-4 rounded-2xl border border-amber-500/20 shadow-xl hidden">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-xs font-black uppercase tracking-widest text-amber-400 flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                Otilldelade tränare
+                            </h3>
+                            <button onclick="toggleMatchCoachMode()" id="matchCoachModeBtn" class="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-700/40 border border-white/10 text-gray-300 flex items-center gap-1.5 active:bg-slate-700/60">
+                                <svg id="matchCoachModeIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                <span id="matchCoachModeLabel">Unik</span>
+                            </button>
+                        </div>
+                        <div id="matchCoachesList" class="coach-drop-zone drop-zone min-h-[44px] flex flex-wrap gap-2 p-2 rounded-xl border border-dashed border-white/10 bg-slate-900/20 transition-colors">
+                            <p class="text-[10px] text-gray-500 italic w-full text-center py-2">Inga närvarande tränare</p>
+                        </div>
+                    </div>
+
+                    <!-- View toggle: List / Pitch -->
+                    <div class="flex bg-slate-900/80 rounded-xl p-1.5 gap-1">
+                        <button onclick="setMatchView('list')" id="matchViewList" class="flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all bg-blue-500 text-white uppercase tracking-widest flex items-center justify-center gap-1.5">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            Lista
+                        </button>
+                        <button onclick="setMatchView('pitch')" id="matchViewPitch" class="flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all text-gray-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="6" width="20" height="12" rx="1"/><path d="M12 6v12"/><circle cx="12" cy="12" r="2"/><path d="M2 9v6"/><path d="M22 9v6"/></svg>
+                            Plan
+                        </button>
+                    </div>
+
+                    <!-- Per-team zones (pitch + bench), rendered dynamically -->
+                    <div id="matchTeamsContainer" class="space-y-6"></div>
+
+                    <!-- Pitch view, rendered dynamically -->
+                    <div id="matchPitchContainer" class="space-y-6 hidden"></div>
+
+                    <!-- Shared "Not playing" zone -->
+                    <section class="rounded-2xl overflow-hidden shadow-xl drop-zone out-zone" data-match-zone="out" data-team="-1">
+                        <div class="bg-slate-700/40 px-5 py-3 flex justify-between items-center">
+                            <h3 class="font-black uppercase text-xs tracking-widest text-gray-400 flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                                Ej med
+                            </h3>
+                            <span class="text-[10px] bg-black/30 px-2 py-1 rounded-full font-black text-gray-300" id="outCount">0</span>
+                        </div>
+                        <div id="outSlots" class="p-4 flex flex-wrap gap-2 min-h-[60px]"></div>
+                    </section>
+
+                    <!-- Sub log -->
+                    <section class="glass-card p-5 rounded-2xl shadow-xl">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-blue-400 flex items-center gap-2 mb-3">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17l-4-4 4-4"/><path d="M3 13h12a4 4 0 0 0 4-4V5"/><path d="M17 7l4 4-4 4"/><path d="M21 11H9a4 4 0 0 0-4 4v4"/></svg>
+                            Byteslogg
+                            <span id="subCount" class="ml-auto text-gray-500 font-bold normal-case tracking-normal text-[10px]">0 byten</span>
+                        </h3>
+                        <div id="subLog" class="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                            <p class="text-gray-500 italic text-center py-3 text-xs">Inga byten ännu</p>
+                        </div>
+                    </section>
+
+                    <!-- Save match -->
+                    <div class="flex flex-col gap-3 bg-slate-800/80 p-5 rounded-2xl border border-white/10 shadow-xl">
+                        <button onclick="saveMatch()" class="py-4 bg-yellow-500 text-black font-black uppercase text-xs tracking-widest rounded-xl flex items-center justify-center gap-2 active:bg-yellow-400">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+                            Spara match i historiken
+                        </button>
+                        <p class="text-[10px] text-gray-500 text-center leading-relaxed">Dra spelare mellan lag och zoner · Tryck på spelare på planen för byte eller position</p>
+                    </div>
+                </div>
+
+            </div>
+            <!-- ===== END MATCH MODE ===== -->
+
         </div>
     </main>
 
-    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-xs shadow-2xl opacity-0 transition-all pointer-events-none z-50 uppercase tracking-widest">
-        Tillagd!
+    <div id="editModal" class="modal-backdrop" onclick="closeEditModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-5">
+                <h3 id="editModalTitle" class="text-lg font-black uppercase tracking-wider">Redigera</h3>
+                <button onclick="closeEditModal()" class="text-gray-400 active:text-white">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            
+            <div class="space-y-4 mb-5">
+                <div>
+                    <label class="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest mb-2 block">Namn</label>
+                    <input type="text" id="editName" class="w-full p-3 rounded-xl outline-none">
+                </div>
+                <div id="editLevelSection">
+                    <label class="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest mb-2 block">Nivå</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="setEditLevel('blue')" id="editBtnBlue" class="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-wider transition-colors"></button>
+                        <button onclick="setEditLevel('yellow')" id="editBtnYellow" class="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-wider transition-colors"></button>
+                        <button onclick="setEditLevel('red')" id="editBtnRed" class="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-wider transition-colors"></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="deleteFromEdit()" class="py-3 px-4 bg-red-600/20 border border-red-500/40 text-red-400 font-black uppercase text-xs tracking-widest rounded-xl active:bg-red-600/40">Radera</button>
+                <button onclick="saveEdit()" class="flex-1 py-3 bg-green-600 text-white font-black uppercase text-xs tracking-widest rounded-xl active:bg-green-700">Spara</button>
+            </div>
+        </div>
     </div>
 
+    <!-- Substitution Modal -->
+    <div id="subModal" class="modal-backdrop" onclick="closeSubModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-black uppercase tracking-wider"><span id="subModalPlayerName" class="text-blue-400"></span></h3>
+                <button onclick="closeSubModal()" class="text-gray-400 active:text-white">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex bg-slate-900/80 rounded-xl p-1 gap-1 mb-4">
+                <button onclick="setSubModalTab('sub')" id="subTabSub" class="flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all bg-blue-500 text-white uppercase tracking-widest">Byt ut</button>
+                <button onclick="setSubModalTab('pos')" id="subTabPos" class="flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all text-gray-400 uppercase tracking-widest">Position</button>
+            </div>
+
+            <!-- Sub panel -->
+            <div id="subModalSubPanel">
+                <p class="text-[11px] text-gray-400 uppercase tracking-widest font-extrabold mb-3">Välj avbytare</p>
+                <div id="subModalBenchList" class="space-y-2 max-h-72 overflow-y-auto custom-scrollbar"></div>
+            </div>
+
+            <!-- Position panel -->
+            <div id="subModalPosPanel" class="hidden">
+                <p class="text-[11px] text-gray-400 uppercase tracking-widest font-extrabold mb-3">Välj position för denna match</p>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <button onclick="setPlayerPosition('GK')"  id="posBtn_GK"  class="pos-btn h-14 rounded-xl font-black text-xs uppercase tracking-wider border-2 transition-colors flex flex-col items-center justify-center"></button>
+                    <button onclick="setPlayerPosition('DEF')" id="posBtn_DEF" class="pos-btn h-14 rounded-xl font-black text-xs uppercase tracking-wider border-2 transition-colors flex flex-col items-center justify-center"></button>
+                    <button onclick="setPlayerPosition('MID')" id="posBtn_MID" class="pos-btn h-14 rounded-xl font-black text-xs uppercase tracking-wider border-2 transition-colors flex flex-col items-center justify-center"></button>
+                    <button onclick="setPlayerPosition('FWD')" id="posBtn_FWD" class="pos-btn h-14 rounded-xl font-black text-xs uppercase tracking-wider border-2 transition-colors flex flex-col items-center justify-center"></button>
+                </div>
+                <button onclick="setPlayerPosition(null)" class="w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-400 bg-slate-700/40 border border-white/10 active:bg-slate-700/60">
+                    Ingen position
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-xs shadow-2xl opacity-0 transition-all pointer-events-none z-50 uppercase tracking-widest">Tillagd!</div>
+
     <script>
+        // --- State ---
         let players = [];
+        let coaches = [];
         let history = [];
         let currentGeneratedTeams = null;
+        let currentCoachAssignments = [];
         let currentSplitMethod = 'count';
+        let rosterTab = 'players';
+        let coachAllowMultiple = false;
+        let editTarget = null;
+        let editingLevel = 'blue';
+
+        // --- Match mode state ---
+        let appMode = 'training';
+        let match = null;  // { format, halves, halfLength, name, pitch[], bench[], out[], coachIds[], subs[], elapsed, period, running, startedAt, periodElapsedAtPause }
+        let matchTimerInterval = null;
+        let subModalTargetPlayerId = null;
+        let subModalTargetTeamIdx = null;
+        let matchView = 'list';  // 'list' | 'pitch'
 
         window.onload = () => {
             const savedPlayers = localStorage.getItem('pm_players');
-            if (savedPlayers) { players = JSON.parse(savedPlayers); renderRoster(); }
+            if (savedPlayers) {
+                players = JSON.parse(savedPlayers);
+                players.forEach(p => { if (p.present === undefined) p.present = true; });
+            }
+            const savedCoaches = localStorage.getItem('pm_coaches');
+            if (savedCoaches) {
+                coaches = JSON.parse(savedCoaches);
+                coaches.forEach(c => { if (c.present === undefined) c.present = true; });
+            }
             const savedHistory = localStorage.getItem('pm_history');
-            if (savedHistory) { history = JSON.parse(savedHistory); renderHistory(); }
+            if (savedHistory) { history = JSON.parse(savedHistory); }
+            renderRoster();
+            renderCoaches();
+            renderHistory();
             document.getElementById('sessionName').value = `TRÄNING ${new Date().toISOString().split('T')[0]}`;
         };
 
-        function setSplitMethod(method) {
-            currentSplitMethod = method;
-            document.getElementById('btnMethodCount').className = method === 'count' ? "flex-1 py-3 text-xs font-bold rounded-lg transition-all bg-green-600 text-white shadow-lg" : "flex-1 py-3 text-xs font-bold rounded-lg transition-all text-gray-400";
-            document.getElementById('btnMethodSize').className = method === 'size' ? "flex-1 py-3 text-xs font-bold rounded-lg transition-all bg-green-600 text-white shadow-lg" : "flex-1 py-3 text-xs font-bold rounded-lg transition-all text-gray-400";
-            document.getElementById('methodHint').innerText = method === 'count' ? "Hur många lag ska skapas?" : "Spelare i varje lag?";
+        function savePlayers() { localStorage.setItem('pm_players', JSON.stringify(players)); }
+        function saveCoaches() { localStorage.setItem('pm_coaches', JSON.stringify(coaches)); }
+        function saveHistory() { localStorage.setItem('pm_history', JSON.stringify(history)); }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.innerText = str;
+            return div.innerHTML;
         }
 
         function showToast(message) {
@@ -195,20 +624,39 @@
             setTimeout(() => { toast.style.opacity = '0'; }, 2000);
         }
 
+        function setRosterTab(tab) {
+            rosterTab = tab;
+            const active = "flex-1 py-3 text-xs font-bold rounded-xl transition-all bg-green-600 text-white";
+            const activeCoach = "flex-1 py-3 text-xs font-bold rounded-xl transition-all coach-gradient text-white";
+            const inactive = "flex-1 py-3 text-xs font-bold rounded-xl transition-all text-gray-400";
+            document.getElementById('tabPlayers').className = tab === 'players' ? active : inactive;
+            document.getElementById('tabCoaches').className = tab === 'coaches' ? activeCoach : inactive;
+            document.getElementById('addPlayerSection').classList.toggle('hidden', tab !== 'players');
+            document.getElementById('playersListSection').classList.toggle('hidden', tab !== 'players');
+            document.getElementById('addCoachSection').classList.toggle('hidden', tab !== 'coaches');
+            document.getElementById('coachesListSection').classList.toggle('hidden', tab !== 'coaches');
+        }
+
+        // --- Players ---
         function addPlayer(level) {
             const input = document.getElementById('playerName');
             const name = input.value.trim();
             if (!name) return;
-            players.push({ id: Date.now(), name, level });
-            localStorage.setItem('pm_players', JSON.stringify(players));
+            players.push({ id: Date.now(), name, level, present: true });
+            savePlayers();
             input.value = ''; renderRoster(); showToast('TILLAGD!');
             input.focus();
         }
 
         function removePlayer(id) {
             players = players.filter(p => p.id !== id);
-            localStorage.setItem('pm_players', JSON.stringify(players));
+            savePlayers();
             renderRoster();
+        }
+
+        function togglePresentPlayer(id) {
+            const p = players.find(x => x.id === id);
+            if (p) { p.present = !p.present; savePlayers(); renderRoster(); }
         }
 
         function clearRoster() {
@@ -217,24 +665,254 @@
 
         function renderRoster() {
             const list = document.getElementById('rosterList');
+            const presentCount = players.filter(p => p.present).length;
             document.getElementById('playerCount').innerText = players.length;
-            if (players.length === 0) { list.innerHTML = '<p id="emptyState" class="text-gray-500 italic text-center py-6 text-sm">Inga spelare än</p>'; return; }
-            list.innerHTML = players.map(p => `
-                <div class="flex items-center justify-between bg-slate-800/60 p-4 rounded-xl border-l-4 border-${p.level === 'yellow' ? 'yellow-500' : p.level + '-500'}">
-                    <span class="font-bold text-sm">${p.name}</span>
-                    <div class="flex items-center gap-3">
-                        <span class="text-[8px] uppercase font-black px-2 py-1 rounded badge-${p.level}">${p.level === 'blue' ? 'Blå' : p.level === 'yellow' ? 'Gul' : 'Röd'}</span>
-                        <button onclick="removePlayer(${p.id})" class="text-gray-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-                    </div>
-                </div>
-            `).join('');
+            document.getElementById('presentCount').innerText = presentCount;
+            if (players.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 italic text-center py-6 text-sm">Inga spelare än</p>';
+                return;
+            }
+            list.innerHTML = players.map(p => {
+                const levelColor = p.level === 'yellow' ? 'yellow-500' : p.level + '-500';
+                const levelLabel = p.level === 'blue' ? 'Blå' : p.level === 'yellow' ? 'Gul' : 'Röd';
+                const presentClass = p.present ? '' : 'player-absent';
+                const checkIcon = p.present
+                    ? `<div class="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
+                    : `<div class="w-7 h-7 rounded-full border-2 border-gray-600 shrink-0"></div>`;
+                return `
+                <div class="${presentClass} flex items-center justify-between gap-3 bg-slate-800/60 p-3 rounded-xl border-l-4 border-${levelColor} cursor-pointer transition-opacity"
+                    onmousedown="handlePressStart(event, 'player', ${p.id})"
+                    onmousemove="handlePressMove(event)"
+                    onmouseup="handlePressEnd(event, 'player', ${p.id})"
+                    onmouseleave="handlePressCancel()"
+                    ontouchstart="handlePressStart(event, 'player', ${p.id})"
+                    ontouchmove="handlePressMove(event)"
+                    ontouchend="handlePressEnd(event, 'player', ${p.id})"
+                    ontouchcancel="handlePressCancel()">
+                    ${checkIcon}
+                    <span class="player-name font-bold text-sm flex-1 truncate">${escapeHtml(p.name)}</span>
+                    <span class="text-[8px] uppercase font-black px-2 py-1 rounded badge-${p.level} shrink-0">${levelLabel}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // --- Coaches ---
+        function addCoach() {
+            const input = document.getElementById('coachName');
+            const name = input.value.trim();
+            if (!name) return;
+            coaches.push({ id: 'c' + Date.now(), name, present: true });
+            saveCoaches();
+            input.value = ''; renderCoaches(); showToast('TILLAGD!');
+            input.focus();
+        }
+
+        function removeCoach(id) {
+            coaches = coaches.filter(c => c.id !== id);
+            saveCoaches();
+            renderCoaches();
+            if (currentCoachAssignments.length) {
+                currentCoachAssignments = currentCoachAssignments.map(arr => arr.filter(cid => cid !== id));
+                renderTeams();
+                renderUnassignedCoaches();
+            }
+        }
+
+        function togglePresentCoach(id) {
+            const c = coaches.find(x => x.id === id);
+            if (c) {
+                c.present = !c.present;
+                saveCoaches();
+                renderCoaches();
+                if (!c.present && currentCoachAssignments.length) {
+                    currentCoachAssignments = currentCoachAssignments.map(arr => arr.filter(cid => cid !== id));
+                    renderTeams();
+                    renderUnassignedCoaches();
+                } else if (c.present && currentCoachAssignments.length) {
+                    renderUnassignedCoaches();
+                }
+            }
+        }
+
+        function clearCoaches() {
+            if (confirm('Rensa tränare?')) { coaches = []; localStorage.removeItem('pm_coaches'); renderCoaches(); }
+        }
+
+        function renderCoaches() {
+            const list = document.getElementById('coachesList');
+            const presentCount = coaches.filter(c => c.present).length;
+            document.getElementById('coachCount').innerText = coaches.length;
+            document.getElementById('presentCoachCount').innerText = presentCount;
+            if (coaches.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 italic text-center py-6 text-sm">Inga tränare än</p>';
+                return;
+            }
+            list.innerHTML = coaches.map(c => {
+                const presentClass = c.present ? '' : 'player-absent';
+                const checkIcon = c.present
+                    ? `<div class="w-7 h-7 rounded-full bg-amber-500 flex items-center justify-center shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
+                    : `<div class="w-7 h-7 rounded-full border-2 border-gray-600 shrink-0"></div>`;
+                return `
+                <div class="${presentClass} flex items-center justify-between gap-3 bg-slate-800/60 p-3 rounded-xl border-l-4 border-amber-500 cursor-pointer transition-opacity"
+                    onmousedown="handlePressStart(event, 'coach', '${c.id}')"
+                    onmousemove="handlePressMove(event)"
+                    onmouseup="handlePressEnd(event, 'coach', '${c.id}')"
+                    onmouseleave="handlePressCancel()"
+                    ontouchstart="handlePressStart(event, 'coach', '${c.id}')"
+                    ontouchmove="handlePressMove(event)"
+                    ontouchend="handlePressEnd(event, 'coach', '${c.id}')"
+                    ontouchcancel="handlePressCancel()">
+                    ${checkIcon}
+                    <span class="player-name font-bold text-sm flex-1 truncate">${escapeHtml(c.name)}</span>
+                    <svg class="shrink-0 text-amber-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>`;
+            }).join('');
+        }
+
+        function setAllAttendance(kind, value) {
+            if (kind === 'players') { players.forEach(p => p.present = value); savePlayers(); renderRoster(); }
+            else {
+                coaches.forEach(c => c.present = value); saveCoaches(); renderCoaches();
+                if (currentCoachAssignments.length) {
+                    if (!value) {
+                        currentCoachAssignments = currentGeneratedTeams.map(() => []);
+                        renderTeams();
+                    }
+                    renderUnassignedCoaches();
+                }
+            }
+        }
+
+        // --- Long-press ---
+        let pressTimer = null;
+        let pressStartPos = null;
+        let didLongPress = false;
+
+        function handlePressStart(e, kind, id) {
+            didLongPress = false;
+            const touch = e.touches ? e.touches[0] : e;
+            pressStartPos = { x: touch.clientX, y: touch.clientY };
+            pressTimer = setTimeout(() => {
+                didLongPress = true;
+                if (navigator.vibrate) navigator.vibrate(40);
+                openEditModal(kind, id);
+            }, 500);
+        }
+
+        function handlePressMove(e) {
+            if (!pressTimer || !pressStartPos) return;
+            const touch = e.touches ? e.touches[0] : e;
+            const dx = Math.abs(touch.clientX - pressStartPos.x);
+            const dy = Math.abs(touch.clientY - pressStartPos.y);
+            if (dx > 8 || dy > 8) { clearTimeout(pressTimer); pressTimer = null; }
+        }
+
+        function handlePressEnd(e, kind, id) {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+                if (!didLongPress) {
+                    if (kind === 'player') togglePresentPlayer(id);
+                    else togglePresentCoach(id);
+                }
+            }
+        }
+
+        function handlePressCancel() {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        }
+
+        // --- Edit modal ---
+        function openEditModal(kind, id) {
+            editTarget = { kind, id };
+            const levelSection = document.getElementById('editLevelSection');
+            const title = document.getElementById('editModalTitle');
+            if (kind === 'player') {
+                const p = players.find(x => x.id === id);
+                if (!p) return;
+                title.innerText = 'Redigera spelare';
+                document.getElementById('editName').value = p.name;
+                levelSection.classList.remove('hidden');
+                setEditLevel(p.level);
+            } else {
+                const c = coaches.find(x => x.id === id);
+                if (!c) return;
+                title.innerText = 'Redigera tränare';
+                document.getElementById('editName').value = c.name;
+                levelSection.classList.add('hidden');
+            }
+            document.getElementById('editModal').classList.add('open');
+        }
+
+        function closeEditModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('editModal').classList.remove('open');
+            editTarget = null;
+        }
+
+        function setEditLevel(level) {
+            editingLevel = level;
+            const styles = {
+                blue: { active: 'bg-blue-500 text-white border-blue-500', inactive: 'border-blue-500/40 text-blue-400/60' },
+                yellow: { active: 'bg-yellow-500 text-black border-yellow-500', inactive: 'border-yellow-500/40 text-yellow-400/60' },
+                red: { active: 'bg-red-500 text-white border-red-500', inactive: 'border-red-500/40 text-red-400/60' }
+            };
+            const labels = { blue: 'Blå', yellow: 'Gul', red: 'Röd' };
+            ['blue', 'yellow', 'red'].forEach(l => {
+                const btn = document.getElementById('editBtn' + l.charAt(0).toUpperCase() + l.slice(1));
+                const isActive = l === level;
+                btn.className = `h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-wider transition-colors ${isActive ? styles[l].active : styles[l].inactive}`;
+                btn.innerText = labels[l];
+            });
+        }
+
+        function saveEdit() {
+            if (!editTarget) return;
+            const newName = document.getElementById('editName').value.trim();
+            if (!newName) { alert('Namn får inte vara tomt'); return; }
+            if (editTarget.kind === 'player') {
+                const p = players.find(x => x.id === editTarget.id);
+                if (!p) return;
+                p.name = newName; p.level = editingLevel;
+                savePlayers();
+                renderRoster();
+                if (currentGeneratedTeams) {
+                    currentGeneratedTeams.forEach(team => team.forEach(tp => { if (tp.id === p.id) { tp.name = p.name; tp.level = p.level; } }));
+                    renderTeams();
+                }
+            } else {
+                const c = coaches.find(x => x.id === editTarget.id);
+                if (!c) return;
+                c.name = newName;
+                saveCoaches();
+                renderCoaches();
+                if (currentCoachAssignments.length) { renderTeams(); renderUnassignedCoaches(); }
+            }
+            closeEditModal();
+            showToast('SPARAT!');
+        }
+
+        function deleteFromEdit() {
+            if (!editTarget) return;
+            if (!confirm('Radera?')) return;
+            if (editTarget.kind === 'player') removePlayer(editTarget.id);
+            else removeCoach(editTarget.id);
+            closeEditModal();
+            showToast('RADERAD!');
+        }
+
+        function setSplitMethod(method) {
+            currentSplitMethod = method;
+            document.getElementById('btnMethodCount').className = method === 'count' ? "flex-1 py-3 text-xs font-bold rounded-lg transition-all bg-green-600 text-white shadow-lg" : "flex-1 py-3 text-xs font-bold rounded-lg transition-all text-gray-400";
+            document.getElementById('btnMethodSize').className = method === 'size' ? "flex-1 py-3 text-xs font-bold rounded-lg transition-all bg-green-600 text-white shadow-lg" : "flex-1 py-3 text-xs font-bold rounded-lg transition-all text-gray-400";
+            document.getElementById('methodHint').innerText = method === 'count' ? "Hur många lag ska skapas?" : "Spelare i varje lag?";
         }
 
         function generateTeams() {
             const val = Math.max(1, parseInt(document.getElementById('splitValue').value) || 1);
             const levels = Array.from(document.querySelectorAll('.filter-level:checked')).map(cb => cb.value);
-            let pool = players.filter(p => levels.includes(p.level));
-            if (pool.length === 0) { alert("Välj spelare först!"); return; }
+            let pool = players.filter(p => p.present && levels.includes(p.level));
+            if (pool.length === 0) { alert("Inga närvarande spelare matchar valda nivåer!"); return; }
             let teamCount = currentSplitMethod === 'count' ? val : Math.ceil(pool.length / val);
             const groups = { blue: [], yellow: [], red: [] };
             pool.forEach(p => groups[p.level].push(p));
@@ -243,56 +921,1676 @@
             let cur = 0;
             ['red', 'yellow', 'blue'].forEach(l => groups[l].forEach(p => { teams[cur].push(p); cur = (cur + 1) % teamCount; }));
             currentGeneratedTeams = teams;
+            currentCoachAssignments = teams.map(() => []);
             document.getElementById('resultsWrapper').classList.remove('hidden');
-            renderTeams(teams);
+            renderTeams();
+            renderUnassignedCoaches();
             setTimeout(() => document.getElementById('resultsWrapper').scrollIntoView({ behavior: 'smooth' }), 100);
         }
 
-        function renderTeams(teams) {
-            document.getElementById('teamsContainer').innerHTML = teams.map((t, i) => `
-                <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10">
-                    <div class="soccer-gradient px-5 py-3 flex justify-between items-center">
-                        <h3 class="font-black uppercase text-xs tracking-widest">${teams.length === 1 ? 'TRUPP' : 'LAG ' + (i + 1)}</h3>
-                        <span class="text-[10px] bg-black/30 px-2 py-1 rounded-full font-black">${t.length} ST</span>
-                    </div>
-                    <div class="p-4 space-y-2 bg-slate-900/20">
-                        ${t.map(p => `<div class="flex justify-between items-center text-sm font-semibold border-b border-white/5 pb-1"><span>${p.name}</span><div class="w-2 h-2 rounded-full bg-${p.level === 'yellow' ? 'yellow-500' : p.level + '-500'}"></div></div>`).join('')}
-                    </div>
-                </div>
-            `).join('');
+        function toggleCoachMode() {
+            coachAllowMultiple = !coachAllowMultiple;
+            const btn = document.getElementById('coachModeBtn');
+            const label = document.getElementById('coachModeLabel');
+            const icon = document.getElementById('coachModeIcon');
+            if (coachAllowMultiple) {
+                btn.className = "text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center gap-1.5 active:bg-amber-500/30";
+                label.innerText = 'Flera lag';
+                icon.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+            } else {
+                btn.className = "text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-700/40 border border-white/10 text-gray-300 flex items-center gap-1.5 active:bg-slate-700/60";
+                label.innerText = 'Unik';
+                icon.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+                // Re-uniqueing: keep only the first occurrence of each coach
+                const seen = new Set();
+                currentCoachAssignments = currentCoachAssignments.map(arr =>
+                    arr.filter(cid => { if (seen.has(cid)) return false; seen.add(cid); return true; })
+                );
+                renderTeams();
+            }
+            renderUnassignedCoaches();
         }
 
+        function renderTeams() {
+            const teams = currentGeneratedTeams;
+            if (!teams) return;
+            const labelFor = (i) => teams.length === 1 ? 'TRUPP' : 'LAG ' + (i + 1);
+            document.getElementById('teamsContainer').innerHTML = teams.map((t, i) => {
+                const assignedCoaches = (currentCoachAssignments[i] || []).map(cid => coaches.find(c => c.id === cid)).filter(Boolean);
+                return `
+                <div class="team-card glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 transition-colors drop-zone" data-team-index="${i}">
+                    <div class="soccer-gradient px-5 py-3 flex justify-between items-center">
+                        <h3 class="font-black uppercase text-xs tracking-widest">${labelFor(i)}</h3>
+                        <span class="text-[10px] bg-black/30 px-2 py-1 rounded-full font-black">${t.length} ST</span>
+                    </div>
+                    <div class="coach-drop-zone drop-zone min-h-[42px] px-3 py-2 bg-amber-500/5 border-b border-amber-500/20 flex flex-wrap gap-1.5 transition-colors" data-team-index="${i}">
+                        ${assignedCoaches.length === 0
+                            ? `<span class="text-[10px] text-amber-500/40 italic w-full text-center py-1">Dra hit en tränare</span>`
+                            : assignedCoaches.map(c => `
+                                <div class="draggable coach-chip flex items-center gap-1.5 coach-gradient text-white px-2.5 py-1 rounded-full text-[11px] font-bold shadow"
+                                    data-coach-id="${c.id}"
+                                    data-from-team="${i}"
+                                    data-drag-kind="coach">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="pointer-events-none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    <span class="pointer-events-none">${escapeHtml(c.name)}</span>
+                                </div>
+                            `).join('')
+                        }
+                    </div>
+                    <div class="team-body p-3 space-y-1.5 bg-slate-900/20 min-h-[60px] transition-colors">
+                        ${t.map(p => `
+                            <div class="draggable team-player flex justify-between items-center text-sm font-semibold bg-slate-800/40 px-3 py-2 rounded-lg border border-white/5"
+                                data-player-id="${p.id}"
+                                data-from-team="${i}"
+                                data-drag-kind="player">
+                                <div class="flex items-center gap-2 pointer-events-none">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2.5"><circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                                    <span>${escapeHtml(p.name)}</span>
+                                </div>
+                                <div class="w-2.5 h-2.5 rounded-full bg-${p.level === 'yellow' ? 'yellow-500' : p.level + '-500'} pointer-events-none"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+            attachDragHandlers();
+        }
+
+        function renderUnassignedCoaches() {
+            const bar = document.getElementById('unassignedCoachesBar');
+            const list = document.getElementById('unassignedCoachesList');
+            if (!currentGeneratedTeams) { bar.classList.add('hidden'); return; }
+
+            const presentCoaches = coaches.filter(c => c.present);
+            if (presentCoaches.length === 0) { bar.classList.add('hidden'); return; }
+            bar.classList.remove('hidden');
+
+            const assignedIds = new Set();
+            currentCoachAssignments.forEach(arr => arr.forEach(cid => assignedIds.add(cid)));
+
+            const available = coachAllowMultiple
+                ? presentCoaches
+                : presentCoaches.filter(c => !assignedIds.has(c.id));
+
+            if (available.length === 0) {
+                list.innerHTML = '<p class="text-[10px] text-gray-500 italic w-full text-center py-2">' + (coachAllowMultiple ? 'Inga närvarande tränare' : 'Alla tränare är tilldelade') + '</p>';
+            } else {
+                list.innerHTML = available.map(c => `
+                    <div class="draggable coach-chip flex items-center gap-1.5 coach-gradient text-white px-2.5 py-1 rounded-full text-[11px] font-bold shadow"
+                        data-coach-id="${c.id}"
+                        data-from-team="-1"
+                        data-drag-kind="coach">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="pointer-events-none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        <span class="pointer-events-none">${escapeHtml(c.name)}</span>
+                    </div>
+                `).join('');
+            }
+            attachDragHandlers();
+        }
+
+        // --- Drag and drop ---
+        let dragState = null;
+
+        function attachDragHandlers() {
+            document.querySelectorAll('.draggable').forEach(el => {
+                if (el._dragAttached) return;
+                el._dragAttached = true;
+                el.addEventListener('mousedown', onDragStart);
+                el.addEventListener('touchstart', onDragStart, { passive: false });
+            });
+        }
+
+        function onDragStart(e) {
+            const el = e.currentTarget;
+            const touch = e.touches ? e.touches[0] : e;
+            const rect = el.getBoundingClientRect();
+            const clone = el.cloneNode(true);
+            clone.classList.add('drag-clone');
+            clone.classList.remove('dragging');
+            clone.style.width = rect.width + 'px';
+            clone.style.left = rect.left + 'px';
+            clone.style.top = rect.top + 'px';
+            document.body.appendChild(clone);
+            el.classList.add('dragging');
+
+            const kind = el.dataset.dragKind;
+            dragState = {
+                el, clone, kind,
+                offsetX: touch.clientX - rect.left,
+                offsetY: touch.clientY - rect.top,
+                fromTeam: parseInt(el.dataset.fromTeam),
+                playerId: kind === 'player' ? parseInt(el.dataset.playerId) : null,
+                coachId: kind === 'coach' ? el.dataset.coachId : null,
+                lastDropTarget: null,
+            };
+
+            if (e.touches) {
+                e.preventDefault();
+                document.addEventListener('touchmove', onDragMove, { passive: false });
+                document.addEventListener('touchend', onDragEnd);
+                document.addEventListener('touchcancel', onDragEnd);
+            } else {
+                document.addEventListener('mousemove', onDragMove);
+                document.addEventListener('mouseup', onDragEnd);
+            }
+        }
+
+        function onDragMove(e) {
+            if (!dragState) return;
+            if (e.touches) e.preventDefault();
+            const touch = e.touches ? e.touches[0] : e;
+            dragState.clone.style.left = (touch.clientX - dragState.offsetX) + 'px';
+            dragState.clone.style.top = (touch.clientY - dragState.offsetY) + 'px';
+
+            dragState.clone.style.display = 'none';
+            const under = document.elementFromPoint(touch.clientX, touch.clientY);
+            dragState.clone.style.display = '';
+
+            let target = null;
+            if (under) {
+                if (dragState.kind === 'player') {
+                    // Players: drop on team card body (but not the coach zone)
+                    target = under.closest('.team-card');
+                } else {
+                    // Coaches: drop on a coach-drop-zone (team coach slot or unassigned bar)
+                    target = under.closest('.coach-drop-zone');
+                }
+            }
+
+            if (dragState.lastDropTarget && dragState.lastDropTarget !== target) {
+                dragState.lastDropTarget.classList.remove('drag-over');
+            }
+            if (target) {
+                target.classList.add('drag-over');
+                dragState.lastDropTarget = target;
+            } else {
+                dragState.lastDropTarget = null;
+            }
+        }
+
+        function onDragEnd() {
+            if (!dragState) return;
+            const ds = dragState;
+            dragState = null;
+
+            document.removeEventListener('touchmove', onDragMove);
+            document.removeEventListener('touchend', onDragEnd);
+            document.removeEventListener('touchcancel', onDragEnd);
+            document.removeEventListener('mousemove', onDragMove);
+            document.removeEventListener('mouseup', onDragEnd);
+
+            ds.el.classList.remove('dragging');
+            ds.clone.remove();
+
+            if (!ds.lastDropTarget) return;
+            ds.lastDropTarget.classList.remove('drag-over');
+
+            if (ds.kind === 'player') {
+                const toTeam = parseInt(ds.lastDropTarget.dataset.teamIndex);
+                if (!isNaN(toTeam) && toTeam !== ds.fromTeam) {
+                    movePlayer(ds.playerId, ds.fromTeam, toTeam);
+                }
+            } else {
+                const zoneEl = ds.lastDropTarget;
+                if (zoneEl.id === 'unassignedCoachesList') {
+                    unassignCoach(ds.coachId, ds.fromTeam);
+                } else {
+                    const toTeam = parseInt(zoneEl.dataset.teamIndex);
+                    if (isNaN(toTeam)) return;
+                    assignCoach(ds.coachId, ds.fromTeam, toTeam);
+                }
+            }
+        }
+
+        function movePlayer(playerId, fromIdx, toIdx) {
+            const fromTeam = currentGeneratedTeams[fromIdx];
+            const toTeam = currentGeneratedTeams[toIdx];
+            const playerIdx = fromTeam.findIndex(p => p.id === playerId);
+            if (playerIdx < 0) return;
+            const [player] = fromTeam.splice(playerIdx, 1);
+            toTeam.push(player);
+            renderTeams();
+        }
+
+        function assignCoach(coachId, fromTeam, toTeam) {
+            if (fromTeam === toTeam) return;
+            const toAssignments = currentCoachAssignments[toTeam];
+            if (toAssignments.includes(coachId)) return;
+            if (coachAllowMultiple) {
+                if (fromTeam >= 0) {
+                    currentCoachAssignments[fromTeam] = currentCoachAssignments[fromTeam].filter(cid => cid !== coachId);
+                }
+                toAssignments.push(coachId);
+            } else {
+                currentCoachAssignments = currentCoachAssignments.map(arr => arr.filter(cid => cid !== coachId));
+                currentCoachAssignments[toTeam].push(coachId);
+            }
+            renderTeams();
+            renderUnassignedCoaches();
+        }
+
+        function unassignCoach(coachId, fromTeam) {
+            if (fromTeam < 0) return;
+            currentCoachAssignments[fromTeam] = currentCoachAssignments[fromTeam].filter(cid => cid !== coachId);
+            renderTeams();
+            renderUnassignedCoaches();
+        }
+
+        // --- History ---
         function saveCurrentTeams() {
             if (!currentGeneratedTeams) return;
-            history.unshift({ id: Date.now(), name: document.getElementById('sessionName').value, date: new Date().toLocaleDateString('sv-SE'), teams: currentGeneratedTeams });
-            localStorage.setItem('pm_history', JSON.stringify(history));
-            renderHistory(); showToast('SPARAT!');
+            const coachSnapshot = currentCoachAssignments.map(arr =>
+                arr.map(cid => {
+                    const c = coaches.find(x => x.id === cid);
+                    return c ? { id: c.id, name: c.name } : null;
+                }).filter(Boolean)
+            );
+            history.unshift({
+                id: Date.now(),
+                name: document.getElementById('sessionName').value,
+                date: new Date().toLocaleDateString('sv-SE'),
+                teams: currentGeneratedTeams,
+                coaches: coachSnapshot,
+            });
+            saveHistory();
+            renderHistory();
+            showToast('SPARAT!');
         }
 
         function renderHistory() {
             const list = document.getElementById('historyList');
             if (history.length === 0) { list.innerHTML = '<p class="text-gray-500 italic text-center py-2 text-xs">Tomt arkiv</p>'; return; }
-            list.innerHTML = history.map(s => `
+            list.innerHTML = history.map(s => {
+                const isMatch = s.type === 'match';
+                const badge = isMatch
+                    ? `<span class="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300 border border-blue-500/40">Match</span>`
+                    : `<span class="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-500/30 text-green-300 border border-green-500/40">Träning</span>`;
+                const accent = isMatch ? 'text-blue-400' : 'text-yellow-500';
+                return `
                 <div class="bg-slate-800/80 p-4 rounded-2xl border border-white/5 mb-2">
-                    <div class="flex justify-between items-start mb-2 text-[10px]">
-                        <div><h4 class="font-black text-yellow-500">${s.name}</h4><span class="text-gray-500">${s.date}</span></div>
-                        <button onclick="deleteHistoryItem(${s.id})" class="text-gray-600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                    <div class="flex justify-between items-start mb-2 text-[10px] gap-2">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 mb-0.5">${badge}</div>
+                            <h4 class="font-black ${accent} truncate">${escapeHtml(s.name)}</h4>
+                            <span class="text-gray-500">${s.date}</span>
+                        </div>
+                        <button onclick="deleteHistoryItem(${s.id})" class="text-gray-600 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
                     </div>
                     <button onclick='loadSession(${s.id})' class="w-full py-2 bg-slate-700/40 text-[9px] font-black uppercase rounded-lg tracking-widest">Visa</button>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
 
         function loadSession(id) {
             const s = history.find(x => x.id === id);
-            if (s) { currentGeneratedTeams = s.teams; document.getElementById('resultsWrapper').classList.remove('hidden'); renderTeams(s.teams); showToast('LADDAT!'); }
+            if (!s) return;
+            if (s.type === 'match') {
+                loadMatchSession(s);
+                return;
+            }
+            currentGeneratedTeams = s.teams;
+            currentCoachAssignments = (s.coaches || s.teams.map(() => [])).map(arr =>
+                arr.map(snap => snap.id).filter(cid => coaches.some(c => c.id === cid))
+            );
+            while (currentCoachAssignments.length < currentGeneratedTeams.length) currentCoachAssignments.push([]);
+            // Switch to training mode if we're not already there
+            if (appMode !== 'training') setAppMode('training');
+            document.getElementById('resultsWrapper').classList.remove('hidden');
+            renderTeams();
+            renderUnassignedCoaches();
+            showToast('LADDAT!');
+            setTimeout(() => document.getElementById('resultsWrapper').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+        }
+
+        function loadMatchSession(s) {
+            const md = s.matchData;
+            if (!md) return;
+            // Resurrect snapshot players that may have been deleted/renamed, by injecting their
+            // snapshot data temporarily into the players array if missing
+            if (md.playerSnapshot) {
+                Object.keys(md.playerSnapshot).forEach(pidStr => {
+                    const pid = parseInt(pidStr);
+                    if (!getPlayerById(pid)) {
+                        const snap = md.playerSnapshot[pidStr];
+                        // Add a ghost player (not saved to localStorage) so renderers can find them.
+                        // We don't persist these — they're just for display of the loaded match.
+                        players.push({ id: pid, name: snap.name + ' (raderad)', level: snap.level, present: false, _ghost: true });
+                    }
+                });
+            }
+            // Reconstruct teams. New saves have md.teams; old single-team saves have md.pitch/md.bench at top level.
+            let teams;
+            if (md.teams && Array.isArray(md.teams)) {
+                teams = md.teams.map(t => ({ pitch: [...(t.pitch || [])], bench: [...(t.bench || [])] }));
+            } else {
+                teams = [{ pitch: [...(md.pitch || [])], bench: [...(md.bench || [])] }];
+            }
+
+            // Reconstruct coach assignments. New saves: md.coachAssignments. Old saves: just md.coaches (all on one bar).
+            let coachAssignments;
+            if (md.coachAssignments && Array.isArray(md.coachAssignments)) {
+                coachAssignments = md.coachAssignments.map(arr =>
+                    arr.map(snap => snap.id).filter(cid => coaches.some(c => c.id === cid))
+                );
+                while (coachAssignments.length < teams.length) coachAssignments.push([]);
+            } else {
+                coachAssignments = teams.map(() => []);
+            }
+
+            match = {
+                format: md.format,
+                halves: md.halves,
+                halfLength: md.halfLength,
+                name: s.name,
+                teamCount: teams.length,
+                teams,
+                out: [...(md.out || [])],
+                coachIds: (md.coaches || []).map(c => c.id).filter(cid => coaches.some(c => c.id === cid)),
+                coachAssignments,
+                coachAllowMultiple: !!md.coachAllowMultiple,
+                positions: { ...(md.positions || {}) },
+                pitchPositions: { ...(md.pitchPositions || {}) },
+                subs: (md.subs || []).slice(),
+                elapsed: 0,
+                period: 1,
+                running: false,
+                startedAt: null,
+                periodElapsedAtPause: 0,
+                playerMinutes: { ...(md.playerMinutes || {}) },
+                playerOnPitchSince: {},
+            };
+            if (appMode !== 'match') setAppMode('match');
+            document.getElementById('matchLineupWrapper').classList.remove('hidden');
+            // Reflect controls
+            setMatchFormat(md.format);
+            document.getElementById('matchTeamCount').value = teams.length;
+            document.getElementById('matchHalves').value = md.halves;
+            document.getElementById('matchHalfLength').value = md.halfLength;
+            document.getElementById('matchName').value = s.name;
+            renderMatch();
+            showToast('LADDAT!');
+            setTimeout(() => document.getElementById('matchLineupWrapper').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
         }
 
         function deleteHistoryItem(id) {
-            if (confirm('Radera?')) { history = history.filter(x => x.id !== id); localStorage.setItem('pm_history', JSON.stringify(history)); renderHistory(); }
+            if (confirm('Radera?')) { history = history.filter(x => x.id !== id); saveHistory(); renderHistory(); }
         }
 
-        document.getElementById('playerName').addEventListener('keypress', (e) => { if (e.key === 'Enter') addPlayer(document.querySelector('.filter-level:checked')?.value || 'blue'); });
+        // --- Share ---
+        async function shareTeams() {
+            if (!currentGeneratedTeams) return;
+            const btn = document.getElementById('shareBtn');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<span class="text-xs">Skapar bild...</span>';
+            btn.disabled = true;
+
+            try {
+                const exportEl = buildShareCard();
+                document.body.appendChild(exportEl);
+                const canvas = await html2canvas(exportEl, {
+                    backgroundColor: '#0f172a',
+                    scale: 2,
+                    useCORS: true,
+                });
+                exportEl.remove();
+
+                canvas.toBlob(async (blob) => {
+                    if (!blob) { btn.innerHTML = original; btn.disabled = false; return; }
+                    const file = new File([blob], 'pitchmaster-lag.png', { type: 'image/png' });
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        try {
+                            await navigator.share({ files: [file], title: 'PitchMaster Lag' });
+                        } catch (err) {
+                            if (err.name !== 'AbortError') downloadBlob(blob);
+                        }
+                    } else {
+                        downloadBlob(blob);
+                    }
+                    btn.innerHTML = original;
+                    btn.disabled = false;
+                }, 'image/png');
+            } catch (err) {
+                console.error(err);
+                alert('Kunde inte skapa bild');
+                btn.innerHTML = original;
+                btn.disabled = false;
+            }
+        }
+
+        function downloadBlob(blob) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'pitchmaster-lag.png';
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+            showToast('NEDLADDAD!');
+        }
+
+        function buildShareCard() {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:600px;padding:32px;background:linear-gradient(160deg, #0f172a 0%, #1e293b 100%);font-family:Inter,sans-serif;color:#f8fafc;';
+            const teams = currentGeneratedTeams;
+            const labelFor = (i) => teams.length === 1 ? 'TRUPP' : 'LAG ' + (i + 1);
+            const sessionName = document.getElementById('sessionName').value || 'PitchMaster';
+            const date = new Date().toLocaleDateString('sv-SE');
+
+            wrap.innerHTML = `
+                <div style="text-align:center;padding-bottom:20px;border-bottom:2px solid rgba(22,163,74,0.4);margin-bottom:24px;">
+                    <div style="font-size:34px;font-weight:800;font-style:italic;letter-spacing:-0.5px;text-transform:uppercase;background:linear-gradient(135deg, #16a34a, #facc15);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PitchMaster</div>
+                    <div style="font-size:14px;color:#94a3b8;font-weight:600;margin-top:6px;">${escapeHtml(sessionName)} · ${date}</div>
+                </div>
+                <div style="display:grid;grid-template-columns:${teams.length === 1 ? '1fr' : 'repeat(2, 1fr)'};gap:14px;">
+                    ${teams.map((t, i) => {
+                        const assignedCoaches = (currentCoachAssignments[i] || []).map(cid => coaches.find(c => c.id === cid)).filter(Boolean);
+                        const coachRow = assignedCoaches.length === 0 ? '' : `
+                            <div style="padding:8px 12px;background:rgba(245,158,11,0.08);border-bottom:1px solid rgba(245,158,11,0.2);display:flex;flex-wrap:wrap;gap:6px;">
+                                ${assignedCoaches.map(c => `<div style="display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700;">👤 ${escapeHtml(c.name)}</div>`).join('')}
+                            </div>
+                        `;
+                        return `
+                            <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.1);border-radius:16px;overflow:hidden;">
+                                <div style="background:linear-gradient(135deg, #16a34a 0%, #15803d 100%);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+                                    <div style="font-weight:900;font-size:13px;letter-spacing:2px;text-transform:uppercase;">${labelFor(i)}</div>
+                                    <div style="background:rgba(0,0,0,0.3);padding:3px 9px;border-radius:99px;font-weight:900;font-size:11px;">${t.length} ST</div>
+                                </div>
+                                ${coachRow}
+                                <div style="padding:12px;">
+                                    ${t.map(p => {
+                                        const color = p.level === 'blue' ? '#3b82f6' : p.level === 'yellow' ? '#facc15' : '#ef4444';
+                                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(30,41,59,0.5);border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px;font-size:14px;font-weight:600;"><span>${escapeHtml(p.name)}</span><div style="width:10px;height:10px;border-radius:50%;background:${color};"></div></div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div style="text-align:center;margin-top:20px;font-size:10px;color:#475569;letter-spacing:2px;text-transform:uppercase;">Genererat med PitchMaster</div>
+            `;
+            return wrap;
+        }
+
+        document.getElementById('playerName').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addPlayer(document.querySelector('.filter-level:checked')?.value || 'blue');
+        });
+        document.getElementById('coachName').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addCoach();
+        });
+
+        // ============================================================
+        // MATCH MODE
+        // ============================================================
+
+        function setAppMode(mode) {
+            appMode = mode;
+            const trainingActive = "flex-1 py-3 text-sm font-black rounded-xl transition-all soccer-gradient text-white uppercase tracking-widest flex items-center justify-center gap-2";
+            const matchActive = "flex-1 py-3 text-sm font-black rounded-xl transition-all match-gradient text-white uppercase tracking-widest flex items-center justify-center gap-2";
+            const inactive = "flex-1 py-3 text-sm font-black rounded-xl transition-all text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2";
+            document.getElementById('modeTraining').className = mode === 'training' ? trainingActive : inactive;
+            document.getElementById('modeMatch').className = mode === 'match' ? matchActive : inactive;
+            document.getElementById('trainingMode').classList.toggle('hidden', mode !== 'training');
+            document.getElementById('matchMode').classList.toggle('hidden', mode !== 'match');
+            // Match mode reads from the same roster, so make sure it's up to date
+            if (mode === 'match' && match) renderMatch();
+        }
+
+        function setMatchFormat(size) {
+            const buttons = document.querySelectorAll('.match-format-btn');
+            buttons.forEach(b => {
+                const isActive = parseInt(b.dataset.format) === size;
+                b.className = isActive
+                    ? "match-format-btn h-12 rounded-xl border-2 border-blue-500 bg-blue-500 text-white font-black uppercase text-[10px] tracking-wider transition-colors"
+                    : "match-format-btn h-12 rounded-xl border-2 border-white/10 text-gray-400 font-black uppercase text-[10px] tracking-wider transition-colors";
+            });
+            // Stash on a data attr for buildMatchLineup to read
+            document.querySelectorAll('.match-format-btn').forEach(b => b.dataset.selected = parseInt(b.dataset.format) === size ? '1' : '');
+        }
+
+        function getSelectedMatchFormat() {
+            const sel = document.querySelector('.match-format-btn[data-selected="1"]');
+            return sel ? parseInt(sel.dataset.format) : null;
+        }
+
+        function buildMatchLineup() {
+            const format = getSelectedMatchFormat();
+            if (!format) { alert('Välj ett format (5v5, 7v7, 9v9, 11v11)'); return; }
+            const teamCount = Math.max(1, Math.min(6, parseInt(document.getElementById('matchTeamCount').value) || 1));
+            const halves = Math.max(1, parseInt(document.getElementById('matchHalves').value) || 2);
+            const halfLength = Math.max(1, parseInt(document.getElementById('matchHalfLength').value) || 20);
+            const name = document.getElementById('matchName').value.trim() || `Match ${new Date().toISOString().split('T')[0]}`;
+
+            const present = players.filter(p => p.present);
+            if (present.length === 0) { alert('Inga närvarande spelare!'); return; }
+
+            // Snake-draft balancing across skill tiers, then distribute across teams.
+            // Each team gets up to `format` starters, additional present players spill onto bench of each team in turn.
+            const groups = { red: [], yellow: [], blue: [] };
+            present.forEach(p => groups[p.level].push(p));
+            Object.keys(groups).forEach(k => groups[k].sort(() => Math.random() - 0.5));
+            const ordered = [...groups.red, ...groups.yellow, ...groups.blue];
+
+            // Build teams: starters first (round-robin so skill is spread), then bench overflow
+            const teams = Array.from({ length: teamCount }, () => ({ pitch: [], bench: [] }));
+            const startersTotal = Math.min(format * teamCount, ordered.length);
+            // Distribute starters in snake order across teams to balance skill
+            for (let i = 0; i < startersTotal; i++) {
+                const teamIdx = i % teamCount;
+                teams[teamIdx].pitch.push(ordered[i].id);
+            }
+            // Remaining players go to benches, also round-robin
+            for (let i = startersTotal; i < ordered.length; i++) {
+                const teamIdx = (i - startersTotal) % teamCount;
+                teams[teamIdx].bench.push(ordered[i].id);
+            }
+
+            match = {
+                format, halves, halfLength, name, teamCount,
+                teams,
+                out: [],
+                coachIds: coaches.filter(c => c.present).map(c => c.id),
+                coachAssignments: teams.map(() => []),  // per-team coach ID arrays
+                coachAllowMultiple: false,
+                positions: {},   // { [playerId]: 'GK'|'DEF'|'MID'|'FWD' }
+                pitchPositions: {},  // { [playerId]: {x, y} } normalized 0-1 within pitch, overrides auto-placement
+                subs: [],
+                elapsed: 0,
+                period: 1,
+                running: false,
+                startedAt: null,
+                periodElapsedAtPause: 0,
+                playerMinutes: {},
+                playerOnPitchSince: {},
+            };
+
+            present.forEach(p => {
+                match.playerMinutes[p.id] = 0;
+                match.playerOnPitchSince[p.id] = null;
+            });
+
+            document.getElementById('matchLineupWrapper').classList.remove('hidden');
+            renderMatch();
+            setTimeout(() => document.getElementById('matchLineupWrapper').scrollIntoView({ behavior: 'smooth' }), 100);
+        }
+
+        function renderMatch() {
+            if (!match) return;
+            renderMatchTimer();
+            renderMatchTeams();
+            renderMatchPitchView();
+            renderOutZone();
+            renderMatchCoaches();
+            renderSubLog();
+        }
+
+        function setMatchView(view) {
+            matchView = view;
+            const activeList = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all bg-blue-500 text-white uppercase tracking-widest flex items-center justify-center gap-1.5";
+            const activePitch = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all match-gradient text-white uppercase tracking-widest flex items-center justify-center gap-1.5";
+            const inactive = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all text-gray-400 uppercase tracking-widest flex items-center justify-center gap-1.5";
+            document.getElementById('matchViewList').className = view === 'list' ? activeList : inactive;
+            document.getElementById('matchViewPitch').className = view === 'pitch' ? activePitch : inactive;
+            document.getElementById('matchTeamsContainer').classList.toggle('hidden', view !== 'list');
+            document.getElementById('matchPitchContainer').classList.toggle('hidden', view !== 'pitch');
+            if (view === 'pitch') renderMatchPitchView();
+        }
+
+        function getPlayerById(id) {
+            return players.find(p => p.id === id);
+        }
+
+        function formatSeconds(s) {
+            const mm = Math.floor(s / 60).toString().padStart(2, '0');
+            const ss = Math.floor(s % 60).toString().padStart(2, '0');
+            return `${mm}:${ss}`;
+        }
+
+        function getLivePlayerMinutes(playerId) {
+            const accumulated = match.playerMinutes[playerId] || 0;
+            const since = match.playerOnPitchSince[playerId];
+            if (since && match.running) {
+                return accumulated + Math.floor((Date.now() - since) / 1000);
+            }
+            return accumulated;
+        }
+
+        function renderMatchTeams() {
+            const container = document.getElementById('matchTeamsContainer');
+            const multi = match.teams.length > 1;
+            container.innerHTML = match.teams.map((team, teamIdx) => {
+                const teamLabel = multi ? `Lag ${teamIdx + 1}` : 'Lag';
+                const assignedCoaches = (match.coachAssignments[teamIdx] || []).map(cid => coaches.find(c => c.id === cid)).filter(Boolean);
+                const coachSlotHtml = `
+                    <div class="coach-drop-zone drop-zone min-h-[42px] px-3 py-2 bg-amber-500/5 border-b border-amber-500/20 flex flex-wrap gap-1.5 transition-colors" data-match-coach-team="${teamIdx}">
+                        ${assignedCoaches.length === 0
+                            ? `<span class="text-[10px] text-amber-500/40 italic w-full text-center py-1">Dra hit en tränare</span>`
+                            : assignedCoaches.map(c => `
+                                <div class="draggable coach-chip flex items-center gap-1.5 coach-gradient text-white px-2.5 py-1 rounded-full text-[11px] font-bold shadow"
+                                    data-coach-id="${c.id}"
+                                    data-from-match-team="${teamIdx}"
+                                    data-drag-kind="matchcoach">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="pointer-events-none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    <span class="pointer-events-none">${escapeHtml(c.name)}</span>
+                                </div>
+                            `).join('')
+                        }
+                    </div>`;
+                return `
+                <div class="space-y-3">
+                    ${multi ? `<h3 class="text-sm font-black uppercase tracking-widest text-gray-300 px-1 flex items-center gap-2"><span class="w-1.5 h-4 bg-blue-500 rounded-full"></span>${teamLabel}</h3>` : ''}
+                    <section class="rounded-2xl overflow-hidden shadow-2xl drop-zone pitch-zone" data-match-zone="pitch" data-team="${teamIdx}">
+                        <div class="match-gradient px-5 py-3 flex justify-between items-center">
+                            <h4 class="font-black uppercase text-xs tracking-widest flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 6v12"/><circle cx="12" cy="12" r="2"/></svg>
+                                På plan${multi ? ' · ' + teamLabel : ''}
+                            </h4>
+                            <span class="text-[10px] bg-black/30 px-2 py-1 rounded-full font-black">${team.pitch.length} / ${match.format}</span>
+                        </div>
+                        ${coachSlotHtml}
+                        <div class="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2 min-h-[100px]">
+                            ${renderZoneSlots(team.pitch, 'pitch', teamIdx)}
+                        </div>
+                    </section>
+                    <section class="rounded-2xl overflow-hidden shadow-xl drop-zone bench-zone" data-match-zone="bench" data-team="${teamIdx}">
+                        <div class="bg-amber-500/20 px-5 py-3 flex justify-between items-center">
+                            <h4 class="font-black uppercase text-xs tracking-widest text-amber-300 flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 18v3"/><path d="M20 18v3"/><path d="M2 18h20"/><path d="M2 14h20v4H2z"/></svg>
+                                Avbytare${multi ? ' · ' + teamLabel : ''}
+                            </h4>
+                            <span class="text-[10px] bg-black/30 px-2 py-1 rounded-full font-black text-amber-200">${team.bench.length}</span>
+                        </div>
+                        <div class="p-4 flex flex-wrap gap-2 min-h-[60px]">
+                            ${renderZoneSlots(team.bench, 'bench', teamIdx)}
+                        </div>
+                    </section>
+                </div>`;
+            }).join('');
+            attachMatchDragHandlers();
+            attachMatchCoachDragHandlers();
+        }
+
+        function renderZoneSlots(ids, zone, teamIdx) {
+            if (ids.length === 0) {
+                const label = zone === 'pitch' ? 'Dra hit startspelare' : 'Inga avbytare';
+                return `<p class="text-[11px] text-gray-500 italic w-full text-center py-3">${label}</p>`;
+            }
+            return ids.map(pid => {
+                const p = getPlayerById(pid);
+                if (!p) return '';
+                const levelColor = p.level === 'yellow' ? 'yellow-500' : p.level + '-500';
+                const minutes = formatSeconds(getLivePlayerMinutes(p.id));
+                const isPitch = zone === 'pitch';
+                const cardClass = isPitch
+                    ? 'bg-green-900/40 border border-green-500/30'
+                    : zone === 'bench'
+                        ? 'bg-amber-900/30 border border-amber-500/20'
+                        : 'bg-slate-700/40 border border-white/5';
+                const onPitchClick = isPitch ? `onclick="openSubModal(${p.id}, ${teamIdx})"` : '';
+                const positionTag = isPitch ? renderPositionTag(match.positions[p.id]) : '';
+                return `
+                <div class="player-slot ${cardClass} rounded-xl p-3 flex items-center justify-between gap-2"
+                    data-match-player-id="${p.id}"
+                    data-from-zone="${zone}"
+                    data-from-team="${teamIdx}"
+                    data-drag-kind="matchplayer"
+                    ${onPitchClick}>
+                    <div class="flex items-center gap-2 min-w-0 pointer-events-none flex-1">
+                        <div class="w-2.5 h-2.5 rounded-full bg-${levelColor} shrink-0"></div>
+                        <span class="font-bold text-sm truncate">${escapeHtml(p.name)}</span>
+                        ${positionTag}
+                    </div>
+                    <span class="text-[10px] font-black ${isPitch ? 'text-green-300' : 'text-gray-500'} timer-display pointer-events-none shrink-0">${minutes}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // Position metadata: code, short label, full label, color
+        const POSITIONS = {
+            GK:  { label: 'MV', full: 'Målvakt',   color: '#eab308', bg: 'rgba(234, 179, 8, 0.25)',  border: 'rgba(234, 179, 8, 0.5)' },
+            DEF: { label: 'BA', full: 'Back',      color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.25)', border: 'rgba(59, 130, 246, 0.5)' },
+            MID: { label: 'MI', full: 'Mitt',      color: '#a3e635', bg: 'rgba(163, 230, 53, 0.25)', border: 'rgba(163, 230, 53, 0.5)' },
+            FWD: { label: 'AN', full: 'Anfall',    color: '#f97316', bg: 'rgba(249, 115, 22, 0.25)', border: 'rgba(249, 115, 22, 0.5)' },
+        };
+
+        function renderPositionTag(code) {
+            if (!code || !POSITIONS[code]) return '';
+            const p = POSITIONS[code];
+            return `<span class="text-[9px] font-black px-1.5 py-0.5 rounded uppercase pointer-events-none shrink-0" style="background:${p.bg};color:${p.color};border:1px solid ${p.border};">${p.label}</span>`;
+        }
+
+        // --- Pitch view ---
+        // SVG coords: 0,0 = top-left of pitch interior. We use a 100x140 viewbox per pitch.
+        // Conceptually the pitch is vertical: attacking goal at top (y=0), own goal at bottom (y=140).
+        // x is normalized 0-100 horizontally.
+        const PITCH_W = 100;
+        const PITCH_H = 140;
+
+        function getInitials(name) {
+            const parts = name.trim().split(/\s+/);
+            if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+
+        // Auto-arrange pitch positions for a team. Returns { [playerId]: {x, y} }.
+        // x: 0 (left) to 100 (right). y: 0 (attack/top) to 140 (defense/bottom).
+        function autoArrangePitchPositions(team) {
+            const result = {};
+            const pitchIds = team.pitch;
+            if (pitchIds.length === 0) return result;
+
+            // Bucket players by their position tag
+            const buckets = { GK: [], DEF: [], MID: [], FWD: [], NONE: [] };
+            pitchIds.forEach(pid => {
+                const tag = match.positions[pid];
+                buckets[tag || 'NONE'].push(pid);
+            });
+
+            // If no tags are set on anyone, fall back to a simple grid based on team size:
+            // GK bottom, then evenly spread upward in 2-3 rows
+            const totalTagged = buckets.GK.length + buckets.DEF.length + buckets.MID.length + buckets.FWD.length;
+            if (totalTagged === 0) {
+                // No tags: simple formation grid. Assume GK = first player.
+                const n = pitchIds.length;
+                if (n <= 1) {
+                    result[pitchIds[0]] = { x: 50, y: 70 };
+                    return result;
+                }
+                // GK at bottom center
+                result[pitchIds[0]] = { x: 50, y: 122 };
+                const rest = pitchIds.slice(1);
+                // Distribute rest across 2 rows
+                const row1Count = Math.ceil(rest.length / 2);
+                const row2Count = rest.length - row1Count;
+                rest.slice(0, row1Count).forEach((pid, i) => {
+                    result[pid] = { x: spreadX(i, row1Count), y: 85 };
+                });
+                rest.slice(row1Count).forEach((pid, i) => {
+                    result[pid] = { x: spreadX(i, row2Count), y: 40 };
+                });
+                return result;
+            }
+
+            // We have at least some tags. Place by band.
+            // Bands (y-coordinates):
+            const Y_GK = 122;
+            const Y_DEF = 92;
+            const Y_MID = 60;
+            const Y_FWD = 25;
+
+            buckets.GK.forEach((pid, i) => {
+                result[pid] = { x: spreadX(i, buckets.GK.length), y: Y_GK };
+            });
+            buckets.DEF.forEach((pid, i) => {
+                result[pid] = { x: spreadX(i, buckets.DEF.length), y: Y_DEF };
+            });
+            buckets.MID.forEach((pid, i) => {
+                result[pid] = { x: spreadX(i, buckets.MID.length), y: Y_MID };
+            });
+            buckets.FWD.forEach((pid, i) => {
+                result[pid] = { x: spreadX(i, buckets.FWD.length), y: Y_FWD };
+            });
+            // Untagged players: distribute in midfield
+            buckets.NONE.forEach((pid, i) => {
+                result[pid] = { x: spreadX(i, buckets.NONE.length), y: Y_MID + (buckets.MID.length > 0 ? 15 : 0) };
+            });
+            return result;
+        }
+
+        // Distribute n items horizontally across the pitch with padding
+        function spreadX(i, n) {
+            if (n === 1) return 50;
+            const pad = 15;
+            const usable = 100 - 2 * pad;
+            return pad + (usable * i / (n - 1));
+        }
+
+        function renderMatchPitchView() {
+            const container = document.getElementById('matchPitchContainer');
+            if (!container || matchView !== 'pitch') {
+                // Still build it so it's ready when user switches, but don't waste effort if mid-render
+            }
+            const multi = match.teams.length > 1;
+            container.innerHTML = match.teams.map((team, teamIdx) => {
+                const teamLabel = multi ? `Lag ${teamIdx + 1}` : 'Lag';
+                const auto = autoArrangePitchPositions(team);
+                // Custom drag positions override auto
+                const placements = {};
+                team.pitch.forEach(pid => {
+                    placements[pid] = match.pitchPositions[pid] || auto[pid] || { x: 50, y: 70 };
+                });
+
+                const dotsSvg = team.pitch.map(pid => {
+                    const p = getPlayerById(pid);
+                    if (!p) return '';
+                    const pos = placements[pid];
+                    const tag = match.positions[pid];
+                    const label = tag ? POSITIONS[tag].label : getInitials(p.name);
+                    // Color: use position color if tagged, else skill level color
+                    let fill, stroke;
+                    if (tag) {
+                        fill = POSITIONS[tag].color;
+                        stroke = POSITIONS[tag].color;
+                    } else {
+                        const skillColors = { blue: '#3b82f6', yellow: '#facc15', red: '#ef4444' };
+                        fill = skillColors[p.level];
+                        stroke = fill;
+                    }
+                    const textColor = (tag === 'MID') || p.level === 'yellow' ? '#0f172a' : '#ffffff';
+                    return `
+                    <g class="pitch-dot" data-pitch-player-id="${p.id}" data-pitch-team="${teamIdx}">
+                        <circle cx="${pos.x}" cy="${pos.y}" r="6.5" fill="${fill}" stroke="white" stroke-width="0.8" />
+                        <text x="${pos.x}" y="${pos.y + 1.4}" text-anchor="middle" font-size="4.2" font-weight="900" fill="${textColor}" font-family="Inter, sans-serif" style="pointer-events:none;user-select:none;">${escapeHtml(label)}</text>
+                        <text x="${pos.x}" y="${pos.y + 12}" text-anchor="middle" font-size="3.2" font-weight="700" fill="white" font-family="Inter, sans-serif" stroke="rgba(0,0,0,0.6)" stroke-width="0.6" paint-order="stroke" style="pointer-events:none;user-select:none;">${escapeHtml(p.name)}</text>
+                    </g>`;
+                }).join('');
+
+                const benchHtml = team.bench.length === 0
+                    ? '<p class="text-[10px] text-gray-500 italic text-center py-2">Inga avbytare</p>'
+                    : team.bench.map(pid => {
+                        const p = getPlayerById(pid);
+                        if (!p) return '';
+                        const lc = p.level === 'yellow' ? 'yellow-500' : p.level + '-500';
+                        return `
+                        <div class="flex items-center gap-1.5 bg-amber-900/30 border border-amber-500/20 rounded-full px-2.5 py-1">
+                            <div class="w-2 h-2 rounded-full bg-${lc}"></div>
+                            <span class="text-[11px] font-bold">${escapeHtml(p.name)}</span>
+                        </div>`;
+                    }).join('');
+
+                return `
+                <div class="space-y-3">
+                    ${multi ? `<h3 class="text-sm font-black uppercase tracking-widest text-gray-300 px-1 flex items-center gap-2"><span class="w-1.5 h-4 bg-blue-500 rounded-full"></span>${teamLabel}</h3>` : ''}
+                    <div class="rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+                        <div class="match-gradient px-4 py-2.5 flex justify-between items-center">
+                            <h4 class="font-black uppercase text-[11px] tracking-widest flex items-center gap-2">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 6v12"/><circle cx="12" cy="12" r="2"/></svg>
+                                Plan${multi ? ' · ' + teamLabel : ''}
+                            </h4>
+                            <span class="text-[10px] bg-black/30 px-2 py-0.5 rounded-full font-black">${team.pitch.length} / ${match.format}</span>
+                        </div>
+                        <div class="bg-[#1a5a2e] p-2">
+                            <svg viewBox="-2 -2 ${PITCH_W + 4} ${PITCH_H + 4}" class="w-full block" style="max-height:560px;" data-team-pitch="${teamIdx}">
+                                ${renderPitchBackground()}
+                                ${dotsSvg}
+                            </svg>
+                        </div>
+                        <div class="bg-slate-900/40 px-3 py-2 flex flex-wrap gap-1.5 border-t border-white/5">
+                            <span class="text-[9px] font-black uppercase tracking-widest text-amber-400 w-full mb-1">Bänk (${team.bench.length})</span>
+                            ${benchHtml}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+            attachPitchDragHandlers();
+        }
+
+        function renderPitchBackground() {
+            // Field stripes
+            const stripes = [];
+            for (let i = 0; i < 7; i++) {
+                if (i % 2 === 0) stripes.push(`<rect x="0" y="${i * 20}" width="${PITCH_W}" height="20" fill="rgba(255,255,255,0.03)" />`);
+            }
+            return `
+                <rect x="0" y="0" width="${PITCH_W}" height="${PITCH_H}" fill="#1a5a2e" />
+                ${stripes.join('')}
+                <!-- outer boundary -->
+                <rect x="0" y="0" width="${PITCH_W}" height="${PITCH_H}" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.6" />
+                <!-- halfway line -->
+                <line x1="0" y1="${PITCH_H/2}" x2="${PITCH_W}" y2="${PITCH_H/2}" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <!-- center circle -->
+                <circle cx="${PITCH_W/2}" cy="${PITCH_H/2}" r="9" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <circle cx="${PITCH_W/2}" cy="${PITCH_H/2}" r="0.8" fill="rgba(255,255,255,0.7)" />
+                <!-- top penalty area (opponent goal) -->
+                <rect x="25" y="0" width="50" height="16" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <rect x="38" y="0" width="24" height="6" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <path d="M 40 16 Q 50 25 60 16" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <!-- bottom penalty area (own goal) -->
+                <rect x="25" y="${PITCH_H - 16}" width="50" height="16" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <rect x="38" y="${PITCH_H - 6}" width="24" height="6" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <path d="M 40 ${PITCH_H - 16} Q 50 ${PITCH_H - 25} 60 ${PITCH_H - 16}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" />
+                <!-- corner arcs -->
+                <path d="M 0 1.5 Q 1.5 1.5 1.5 0" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.4" />
+                <path d="M ${PITCH_W - 1.5} 0 Q ${PITCH_W - 1.5} 1.5 ${PITCH_W} 1.5" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.4" />
+                <path d="M 0 ${PITCH_H - 1.5} Q 1.5 ${PITCH_H - 1.5} 1.5 ${PITCH_H}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.4" />
+                <path d="M ${PITCH_W} ${PITCH_H - 1.5} Q ${PITCH_W - 1.5} ${PITCH_H - 1.5} ${PITCH_W - 1.5} ${PITCH_H}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.4" />
+            `;
+        }
+
+        // --- Pitch dot drag handling ---
+        // Distinguishes tap (opens modal) from drag (moves dot). Threshold 6px.
+        let pitchDragState = null;
+
+        function attachPitchDragHandlers() {
+            document.querySelectorAll('.pitch-dot').forEach(el => {
+                if (el._pitchDragAttached) return;
+                el._pitchDragAttached = true;
+                el.addEventListener('mousedown', onPitchDotStart);
+                el.addEventListener('touchstart', onPitchDotStart, { passive: false });
+            });
+        }
+
+        function onPitchDotStart(e) {
+            const el = e.currentTarget;
+            const touch = e.touches ? e.touches[0] : e;
+            const pid = parseInt(el.dataset.pitchPlayerId);
+            const teamIdx = parseInt(el.dataset.pitchTeam);
+            const svg = el.closest('svg');
+            if (!svg) return;
+
+            const startClientX = touch.clientX;
+            const startClientY = touch.clientY;
+            let dragging = false;
+
+            // Map client coords to SVG viewBox coords
+            function clientToSvg(cx, cy) {
+                const pt = svg.createSVGPoint();
+                pt.x = cx; pt.y = cy;
+                const ctm = svg.getScreenCTM();
+                if (!ctm) return { x: 50, y: 70 };
+                const svgP = pt.matrixTransform(ctm.inverse());
+                return { x: svgP.x, y: svgP.y };
+            }
+
+            function onMove(me) {
+                const t = me.touches ? me.touches[0] : me;
+                const dx = Math.abs(t.clientX - startClientX);
+                const dy = Math.abs(t.clientY - startClientY);
+                if (!dragging && (dx > 6 || dy > 6)) {
+                    dragging = true;
+                    el.style.cursor = 'grabbing';
+                }
+                if (!dragging) return;
+                if (me.touches) me.preventDefault();
+                const svgPt = clientToSvg(t.clientX, t.clientY);
+                // Clamp to pitch
+                const x = Math.max(6, Math.min(PITCH_W - 6, svgPt.x));
+                const y = Math.max(6, Math.min(PITCH_H - 6, svgPt.y));
+                // Update the circle + text positions live
+                const circle = el.querySelector('circle');
+                const texts = el.querySelectorAll('text');
+                circle.setAttribute('cx', x);
+                circle.setAttribute('cy', y);
+                if (texts[0]) { texts[0].setAttribute('x', x); texts[0].setAttribute('y', y + 1.4); }
+                if (texts[1]) { texts[1].setAttribute('x', x); texts[1].setAttribute('y', y + 12); }
+                pitchDragState = { pid, x, y };
+            }
+
+            function onEnd() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onEnd);
+                document.removeEventListener('touchmove', onMove);
+                document.removeEventListener('touchend', onEnd);
+                document.removeEventListener('touchcancel', onEnd);
+                el.style.cursor = 'grab';
+
+                if (dragging && pitchDragState && pitchDragState.pid === pid) {
+                    // Commit to match state
+                    match.pitchPositions[pid] = { x: pitchDragState.x, y: pitchDragState.y };
+                    pitchDragState = null;
+                } else if (!dragging) {
+                    // It was a tap — open the sub/position modal
+                    openSubModal(pid, teamIdx);
+                }
+            }
+
+            if (e.touches) {
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onEnd);
+                document.addEventListener('touchcancel', onEnd);
+            } else {
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onEnd);
+            }
+        }
+
+        function renderOutZone() {
+            const slots = document.getElementById('outSlots');
+            const countEl = document.getElementById('outCount');
+            countEl.innerText = match.out.length;
+            if (match.out.length === 0) {
+                slots.innerHTML = `<p class="text-[11px] text-gray-500 italic w-full text-center py-3">Inga utelämnade</p>`;
+                return;
+            }
+            slots.innerHTML = match.out.map(pid => {
+                const p = getPlayerById(pid);
+                if (!p) return '';
+                const levelColor = p.level === 'yellow' ? 'yellow-500' : p.level + '-500';
+                const minutes = formatSeconds(getLivePlayerMinutes(p.id));
+                return `
+                <div class="player-slot bg-slate-700/40 border border-white/5 rounded-xl p-3 flex items-center justify-between gap-2"
+                    data-match-player-id="${p.id}"
+                    data-from-zone="out"
+                    data-from-team="-1"
+                    data-drag-kind="matchplayer">
+                    <div class="flex items-center gap-2 min-w-0 pointer-events-none">
+                        <div class="w-2.5 h-2.5 rounded-full bg-${levelColor} shrink-0"></div>
+                        <span class="font-bold text-sm truncate">${escapeHtml(p.name)}</span>
+                    </div>
+                    <span class="text-[10px] font-black text-gray-500 timer-display pointer-events-none">${minutes}</span>
+                </div>`;
+            }).join('');
+            attachMatchDragHandlers();
+        }
+
+        function renderMatchCoaches() {
+            const bar = document.getElementById('matchCoachesBar');
+            const list = document.getElementById('matchCoachesList');
+            const presentMatchCoaches = match.coachIds
+                .map(id => coaches.find(c => c.id === id))
+                .filter(c => c && c.present);
+
+            if (presentMatchCoaches.length === 0) { bar.classList.add('hidden'); return; }
+            bar.classList.remove('hidden');
+
+            // Sync the mode toggle UI
+            const btn = document.getElementById('matchCoachModeBtn');
+            const label = document.getElementById('matchCoachModeLabel');
+            const icon = document.getElementById('matchCoachModeIcon');
+            if (match.coachAllowMultiple) {
+                btn.className = "text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center gap-1.5 active:bg-amber-500/30";
+                label.innerText = 'Flera lag';
+                icon.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+            } else {
+                btn.className = "text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-700/40 border border-white/10 text-gray-300 flex items-center gap-1.5 active:bg-slate-700/60";
+                label.innerText = 'Unik';
+                icon.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+            }
+
+            const assignedIds = new Set();
+            match.coachAssignments.forEach(arr => arr.forEach(cid => assignedIds.add(cid)));
+
+            const available = match.coachAllowMultiple
+                ? presentMatchCoaches
+                : presentMatchCoaches.filter(c => !assignedIds.has(c.id));
+
+            if (available.length === 0) {
+                list.innerHTML = '<p class="text-[10px] text-gray-500 italic w-full text-center py-2">' + (match.coachAllowMultiple ? 'Inga närvarande tränare' : 'Alla tränare är tilldelade') + '</p>';
+            } else {
+                list.innerHTML = available.map(c => `
+                    <div class="draggable coach-chip flex items-center gap-1.5 coach-gradient text-white px-2.5 py-1 rounded-full text-[11px] font-bold shadow"
+                        data-coach-id="${c.id}"
+                        data-from-match-team="-1"
+                        data-drag-kind="matchcoach">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="pointer-events-none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        <span class="pointer-events-none">${escapeHtml(c.name)}</span>
+                    </div>
+                `).join('');
+            }
+            attachMatchCoachDragHandlers();
+        }
+
+        function toggleMatchCoachMode() {
+            if (!match) return;
+            match.coachAllowMultiple = !match.coachAllowMultiple;
+            if (!match.coachAllowMultiple) {
+                // Going from multiple -> unique: dedupe (keep first occurrence)
+                const seen = new Set();
+                match.coachAssignments = match.coachAssignments.map(arr =>
+                    arr.filter(cid => { if (seen.has(cid)) return false; seen.add(cid); return true; })
+                );
+            }
+            renderMatch();
+        }
+
+        // --- Match coach drag & drop ---
+        let matchCoachDragState = null;
+
+        function attachMatchCoachDragHandlers() {
+            document.querySelectorAll('[data-drag-kind="matchcoach"]').forEach(el => {
+                if (el._matchCoachDragAttached) return;
+                el._matchCoachDragAttached = true;
+                el.addEventListener('mousedown', onMatchCoachDragStart);
+                el.addEventListener('touchstart', onMatchCoachDragStart, { passive: false });
+            });
+        }
+
+        function onMatchCoachDragStart(e) {
+            const el = e.currentTarget;
+            const touch = e.touches ? e.touches[0] : e;
+            const rect = el.getBoundingClientRect();
+            const clone = el.cloneNode(true);
+            clone.classList.add('drag-clone');
+            clone.classList.remove('dragging');
+            clone.style.width = rect.width + 'px';
+            clone.style.left = rect.left + 'px';
+            clone.style.top = rect.top + 'px';
+            document.body.appendChild(clone);
+            el.classList.add('dragging');
+
+            matchCoachDragState = {
+                el, clone,
+                offsetX: touch.clientX - rect.left,
+                offsetY: touch.clientY - rect.top,
+                coachId: el.dataset.coachId,
+                fromTeam: parseInt(el.dataset.fromMatchTeam),
+                lastDropTarget: null,
+            };
+
+            if (e.touches) {
+                e.preventDefault();
+                document.addEventListener('touchmove', onMatchCoachDragMove, { passive: false });
+                document.addEventListener('touchend', onMatchCoachDragEnd);
+                document.addEventListener('touchcancel', onMatchCoachDragEnd);
+            } else {
+                document.addEventListener('mousemove', onMatchCoachDragMove);
+                document.addEventListener('mouseup', onMatchCoachDragEnd);
+            }
+        }
+
+        function onMatchCoachDragMove(e) {
+            if (!matchCoachDragState) return;
+            if (e.touches) e.preventDefault();
+            const t = e.touches ? e.touches[0] : e;
+            matchCoachDragState.clone.style.left = (t.clientX - matchCoachDragState.offsetX) + 'px';
+            matchCoachDragState.clone.style.top = (t.clientY - matchCoachDragState.offsetY) + 'px';
+
+            matchCoachDragState.clone.style.display = 'none';
+            const under = document.elementFromPoint(t.clientX, t.clientY);
+            matchCoachDragState.clone.style.display = '';
+
+            // Valid drops: a per-team coach slot, or the unassigned bar
+            const target = under
+                ? (under.closest('[data-match-coach-team]') || under.closest('#matchCoachesList'))
+                : null;
+            if (matchCoachDragState.lastDropTarget && matchCoachDragState.lastDropTarget !== target) {
+                matchCoachDragState.lastDropTarget.classList.remove('drag-over');
+            }
+            if (target) {
+                target.classList.add('drag-over');
+                matchCoachDragState.lastDropTarget = target;
+            } else {
+                matchCoachDragState.lastDropTarget = null;
+            }
+        }
+
+        function onMatchCoachDragEnd() {
+            if (!matchCoachDragState) return;
+            const ds = matchCoachDragState;
+            matchCoachDragState = null;
+
+            document.removeEventListener('touchmove', onMatchCoachDragMove);
+            document.removeEventListener('touchend', onMatchCoachDragEnd);
+            document.removeEventListener('touchcancel', onMatchCoachDragEnd);
+            document.removeEventListener('mousemove', onMatchCoachDragMove);
+            document.removeEventListener('mouseup', onMatchCoachDragEnd);
+
+            ds.el.classList.remove('dragging');
+            ds.clone.remove();
+
+            if (!ds.lastDropTarget) return;
+            ds.lastDropTarget.classList.remove('drag-over');
+
+            if (ds.lastDropTarget.id === 'matchCoachesList') {
+                // Drop on unassigned bar -> unassign
+                if (ds.fromTeam >= 0) {
+                    match.coachAssignments[ds.fromTeam] = match.coachAssignments[ds.fromTeam].filter(cid => cid !== ds.coachId);
+                    renderMatch();
+                }
+            } else {
+                const toTeam = parseInt(ds.lastDropTarget.dataset.matchCoachTeam);
+                if (isNaN(toTeam) || toTeam === ds.fromTeam) return;
+                if (match.coachAssignments[toTeam].includes(ds.coachId)) return;
+                if (match.coachAllowMultiple) {
+                    if (ds.fromTeam >= 0) {
+                        match.coachAssignments[ds.fromTeam] = match.coachAssignments[ds.fromTeam].filter(cid => cid !== ds.coachId);
+                    }
+                    match.coachAssignments[toTeam].push(ds.coachId);
+                } else {
+                    // Unique: remove from any existing team
+                    match.coachAssignments = match.coachAssignments.map(arr => arr.filter(cid => cid !== ds.coachId));
+                    match.coachAssignments[toTeam].push(ds.coachId);
+                }
+                renderMatch();
+            }
+        }
+
+        function renderSubLog() {
+            const log = document.getElementById('subLog');
+            const counter = document.getElementById('subCount');
+            counter.innerText = `${match.subs.length} ${match.subs.length === 1 ? 'byte' : 'byten'}`;
+            if (match.subs.length === 0) {
+                log.innerHTML = '<p class="text-gray-500 italic text-center py-3 text-xs">Inga byten ännu</p>';
+                return;
+            }
+            log.innerHTML = match.subs.slice().reverse().map(s => {
+                const inP = getPlayerById(s.inId);
+                const outP = getPlayerById(s.outId);
+                return `
+                <div class="flex items-center gap-2 text-xs bg-slate-900/40 px-3 py-2 rounded-lg">
+                    <span class="text-[10px] font-black text-blue-400 timer-display shrink-0">${s.timeLabel}</span>
+                    <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span class="text-green-400 font-bold truncate">${escapeHtml(inP ? inP.name : '?')}</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-gray-500 shrink-0"><path d="M7 17l-4-4 4-4"/><path d="M17 7l4 4-4 4"/></svg>
+                        <span class="text-red-400 font-bold truncate">${escapeHtml(outP ? outP.name : '?')}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // --- Timer ---
+        function renderMatchTimer() {
+            document.getElementById('matchTimer').innerText = formatSeconds(match.elapsed);
+            document.getElementById('matchTimerMax').innerText = formatSeconds(match.halfLength * 60);
+            const periodNames = ['', '1:a halvlek', '2:a halvlek', '3:e halvlek', '4:e halvlek'];
+            document.getElementById('matchPeriodLabel').innerText = periodNames[match.period] || `Period ${match.period}`;
+            const btn = document.getElementById('timerToggleBtn');
+            const icon = document.getElementById('timerToggleIcon');
+            const label = document.getElementById('timerToggleLabel');
+            if (match.running) {
+                btn.className = "py-3 bg-red-500 text-white font-black uppercase text-xs tracking-widest rounded-xl active:bg-red-600 flex items-center justify-center gap-1.5";
+                icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+                label.innerText = 'Paus';
+            } else {
+                btn.className = "py-3 bg-green-600 text-white font-black uppercase text-xs tracking-widest rounded-xl active:bg-green-700 flex items-center justify-center gap-1.5";
+                icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+                label.innerText = match.elapsed > 0 ? 'Fortsätt' : 'Start';
+            }
+        }
+
+        function toggleMatchTimer() {
+            if (!match) return;
+            if (match.running) {
+                // Pause: bank elapsed time
+                const segmentSecs = (Date.now() - match.startedAt) / 1000;
+                match.elapsed = match.periodElapsedAtPause + segmentSecs;
+                match.periodElapsedAtPause = match.elapsed;
+                // Bank each on-pitch player's contribution
+                Object.keys(match.playerOnPitchSince).forEach(pid => {
+                    const since = match.playerOnPitchSince[pid];
+                    if (since) {
+                        match.playerMinutes[pid] = (match.playerMinutes[pid] || 0) + Math.floor((Date.now() - since) / 1000);
+                        match.playerOnPitchSince[pid] = null;
+                    }
+                });
+                match.running = false;
+                clearInterval(matchTimerInterval);
+                matchTimerInterval = null;
+            } else {
+                // Start: mark all on-pitch players (across all teams) as "on pitch since now"
+                match.startedAt = Date.now();
+                match.running = true;
+                match.teams.forEach(team => {
+                    team.pitch.forEach(pid => { match.playerOnPitchSince[pid] = Date.now(); });
+                });
+                matchTimerInterval = setInterval(tickMatchTimer, 1000);
+            }
+            renderMatch();
+        }
+
+        function tickMatchTimer() {
+            if (!match || !match.running) return;
+            const segmentSecs = (Date.now() - match.startedAt) / 1000;
+            match.elapsed = match.periodElapsedAtPause + segmentSecs;
+            // Just update the displayed numbers without full re-render to avoid jitter
+            document.getElementById('matchTimer').innerText = formatSeconds(match.elapsed);
+            // Update per-player minute displays in place
+            document.querySelectorAll('[data-match-player-id]').forEach(el => {
+                const pid = parseInt(el.dataset.matchPlayerId);
+                const minEl = el.querySelector('.timer-display');
+                if (minEl) minEl.innerText = formatSeconds(getLivePlayerMinutes(pid));
+            });
+        }
+
+        function nextMatchPeriod() {
+            if (!match) return;
+            // If running, pause first to bank minutes
+            if (match.running) toggleMatchTimer();
+            if (match.period >= match.halves) {
+                showToast('Sista perioden klar');
+                return;
+            }
+            match.period += 1;
+            match.elapsed = 0;
+            match.periodElapsedAtPause = 0;
+            renderMatch();
+        }
+
+        function resetMatchTimer() {
+            if (!match) return;
+            if (!confirm('Nollställ tiden för denna period?')) return;
+            if (match.running) toggleMatchTimer();
+            match.elapsed = 0;
+            match.periodElapsedAtPause = 0;
+            renderMatch();
+        }
+
+        // --- Match drag & drop ---
+        // Players can move between pitch/bench/out. Pitch has capacity = format.
+        function attachMatchDragHandlers() {
+            document.querySelectorAll('[data-drag-kind="matchplayer"]').forEach(el => {
+                if (el._matchDragAttached) return;
+                el._matchDragAttached = true;
+                el.addEventListener('mousedown', onMatchDragStart);
+                el.addEventListener('touchstart', onMatchDragStart, { passive: false });
+            });
+        }
+
+        let matchDragState = null;
+
+        function onMatchDragStart(e) {
+            // Don't start a drag if it's a click on the pitch (which opens the sub modal).
+            // We let drag start; tap-to-sub is only triggered by onclick on stationary press.
+            // The browser's click event won't fire if a real drag happens, but to keep tap reliable
+            // we only start dragging once the pointer has actually moved a few px.
+            const startEl = e.currentTarget;
+            const touch = e.touches ? e.touches[0] : e;
+            const startX = touch.clientX;
+            const startY = touch.clientY;
+            const pid = parseInt(startEl.dataset.matchPlayerId);
+            const fromZone = startEl.dataset.fromZone;
+            const fromTeam = parseInt(startEl.dataset.fromTeam);
+
+            let started = false;
+
+            function maybeStart(me) {
+                if (started) return;
+                const t = me.touches ? me.touches[0] : me;
+                const dx = Math.abs(t.clientX - startX);
+                const dy = Math.abs(t.clientY - startY);
+                if (dx < 6 && dy < 6) return;
+                started = true;
+
+                const rect = startEl.getBoundingClientRect();
+                const clone = startEl.cloneNode(true);
+                clone.classList.add('drag-clone');
+                clone.classList.remove('dragging');
+                clone.style.width = rect.width + 'px';
+                clone.style.left = rect.left + 'px';
+                clone.style.top = rect.top + 'px';
+                document.body.appendChild(clone);
+                startEl.classList.add('dragging');
+
+                matchDragState = {
+                    el: startEl, clone,
+                    offsetX: t.clientX - rect.left,
+                    offsetY: t.clientY - rect.top,
+                    playerId: pid,
+                    fromZone,
+                    fromTeam,
+                    lastDropTarget: null,
+                };
+            }
+
+            function onMove(me) {
+                maybeStart(me);
+                if (!matchDragState) return;
+                if (me.touches) me.preventDefault();
+                const t = me.touches ? me.touches[0] : me;
+                matchDragState.clone.style.left = (t.clientX - matchDragState.offsetX) + 'px';
+                matchDragState.clone.style.top = (t.clientY - matchDragState.offsetY) + 'px';
+
+                matchDragState.clone.style.display = 'none';
+                const under = document.elementFromPoint(t.clientX, t.clientY);
+                matchDragState.clone.style.display = '';
+
+                const zoneEl = under ? under.closest('[data-match-zone]') : null;
+                if (matchDragState.lastDropTarget && matchDragState.lastDropTarget !== zoneEl) {
+                    matchDragState.lastDropTarget.classList.remove('drag-over');
+                }
+                if (zoneEl) {
+                    zoneEl.classList.add('drag-over');
+                    matchDragState.lastDropTarget = zoneEl;
+                } else {
+                    matchDragState.lastDropTarget = null;
+                }
+            }
+
+            function onEnd() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onEnd);
+                document.removeEventListener('touchmove', onMove);
+                document.removeEventListener('touchend', onEnd);
+                document.removeEventListener('touchcancel', onEnd);
+
+                if (!matchDragState) return;
+                const ds = matchDragState;
+                matchDragState = null;
+
+                ds.el.classList.remove('dragging');
+                ds.clone.remove();
+
+                if (!ds.lastDropTarget) return;
+                ds.lastDropTarget.classList.remove('drag-over');
+                const toZone = ds.lastDropTarget.dataset.matchZone;
+                const toTeam = parseInt(ds.lastDropTarget.dataset.team);
+                if (toZone && (toZone !== ds.fromZone || toTeam !== ds.fromTeam)) {
+                    moveMatchPlayer(ds.playerId, ds.fromZone, ds.fromTeam, toZone, toTeam);
+                }
+            }
+
+            if (e.touches) {
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onEnd);
+                document.addEventListener('touchcancel', onEnd);
+            } else {
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onEnd);
+            }
+        }
+
+        function moveMatchPlayer(playerId, fromZone, fromTeam, toZone, toTeam) {
+            if (!match) return;
+
+            // Capacity check on pitch
+            if (toZone === 'pitch' && match.teams[toTeam].pitch.length >= match.format) {
+                showToast('PLANEN FULL');
+                return;
+            }
+
+            // Remove from source
+            if (fromZone === 'out') {
+                match.out = match.out.filter(id => id !== playerId);
+            } else {
+                match.teams[fromTeam][fromZone] = match.teams[fromTeam][fromZone].filter(id => id !== playerId);
+            }
+            // Add to destination
+            if (toZone === 'out') {
+                match.out.push(playerId);
+            } else {
+                match.teams[toTeam][toZone].push(playerId);
+            }
+
+            // Track minutes: leaving pitch banks time; entering pitch starts clock (if running)
+            const leftPitch = fromZone === 'pitch' && toZone !== 'pitch';
+            const enteredPitch = toZone === 'pitch' && fromZone !== 'pitch';
+            if (leftPitch) {
+                if (match.playerOnPitchSince[playerId]) {
+                    match.playerMinutes[playerId] = (match.playerMinutes[playerId] || 0) + Math.floor((Date.now() - match.playerOnPitchSince[playerId]) / 1000);
+                    match.playerOnPitchSince[playerId] = null;
+                }
+                // Clear position when leaving the pitch
+                delete match.positions[playerId];
+                delete match.pitchPositions[playerId];
+            } else if (enteredPitch) {
+                match.playerOnPitchSince[playerId] = match.running ? Date.now() : null;
+            }
+
+            renderMatch();
+        }
+
+        // --- Tap-to-sub / position modal ---
+        function openSubModal(playerId, teamIdx) {
+            if (!match) return;
+            subModalTargetPlayerId = playerId;
+            subModalTargetTeamIdx = teamIdx;
+            const p = getPlayerById(playerId);
+            if (!p) return;
+            document.getElementById('subModalPlayerName').innerText = p.name;
+            // Default to sub tab
+            setSubModalTab('sub');
+            // Populate bench list
+            const benchPlayers = match.teams[teamIdx].bench.map(id => getPlayerById(id)).filter(Boolean);
+            const list = document.getElementById('subModalBenchList');
+            if (benchPlayers.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 italic text-center py-6 text-sm">Inga avbytare på bänken</p>';
+            } else {
+                list.innerHTML = benchPlayers.map(bp => {
+                    const lc = bp.level === 'yellow' ? 'yellow-500' : bp.level + '-500';
+                    return `
+                    <button onclick="performSub(${bp.id})" class="w-full flex items-center justify-between p-3 rounded-xl bg-slate-700/40 border border-white/5 active:bg-slate-700/70">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2.5 h-2.5 rounded-full bg-${lc}"></div>
+                            <span class="font-bold text-sm">${escapeHtml(bp.name)}</span>
+                        </div>
+                        <span class="text-[10px] font-black text-blue-400 timer-display">${formatSeconds(getLivePlayerMinutes(bp.id))}</span>
+                    </button>`;
+                }).join('');
+            }
+            // Render position buttons (highlight current)
+            renderPositionButtons();
+            document.getElementById('subModal').classList.add('open');
+        }
+
+        function setSubModalTab(tab) {
+            const subPanel = document.getElementById('subModalSubPanel');
+            const posPanel = document.getElementById('subModalPosPanel');
+            const subTab = document.getElementById('subTabSub');
+            const posTab = document.getElementById('subTabPos');
+            const activeSub = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all bg-blue-500 text-white uppercase tracking-widest";
+            const activePos = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all bg-green-600 text-white uppercase tracking-widest";
+            const inactive = "flex-1 py-2.5 text-[11px] font-black rounded-lg transition-all text-gray-400 uppercase tracking-widest";
+            if (tab === 'sub') {
+                subPanel.classList.remove('hidden');
+                posPanel.classList.add('hidden');
+                subTab.className = activeSub;
+                posTab.className = inactive;
+            } else {
+                subPanel.classList.add('hidden');
+                posPanel.classList.remove('hidden');
+                subTab.className = inactive;
+                posTab.className = activePos;
+            }
+        }
+
+        function renderPositionButtons() {
+            const current = match.positions[subModalTargetPlayerId];
+            ['GK','DEF','MID','FWD'].forEach(code => {
+                const info = POSITIONS[code];
+                const btn = document.getElementById('posBtn_' + code);
+                const isActive = current === code;
+                btn.innerHTML = `<span class="text-base">${info.label}</span><span class="text-[9px] font-bold opacity-70 mt-0.5">${info.full}</span>`;
+                btn.style.cssText = isActive
+                    ? `background:${info.bg};border-color:${info.color};color:${info.color};`
+                    : `background:transparent;border-color:rgba(255,255,255,0.1);color:#94a3b8;`;
+            });
+        }
+
+        function setPlayerPosition(code) {
+            if (!match || !subModalTargetPlayerId) return;
+            if (code === null) {
+                delete match.positions[subModalTargetPlayerId];
+            } else {
+                match.positions[subModalTargetPlayerId] = code;
+            }
+            renderPositionButtons();
+            renderMatch();
+        }
+
+        function closeSubModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('subModal').classList.remove('open');
+            subModalTargetPlayerId = null;
+            subModalTargetTeamIdx = null;
+        }
+
+        function performSub(benchPlayerId) {
+            if (!match || !subModalTargetPlayerId || subModalTargetTeamIdx == null) return;
+            const outId = subModalTargetPlayerId;
+            const inId = benchPlayerId;
+            const teamIdx = subModalTargetTeamIdx;
+            const team = match.teams[teamIdx];
+            // Swap within this team: outId leaves pitch -> bench, inId leaves bench -> pitch
+            team.pitch = team.pitch.filter(id => id !== outId);
+            team.bench = team.bench.filter(id => id !== inId);
+            team.pitch.push(inId);
+            team.bench.push(outId);
+
+            // Transfer position from outgoing to incoming player so the role stays filled
+            const outPos = match.positions[outId];
+            delete match.positions[outId];
+            if (outPos) match.positions[inId] = outPos;
+            // Transfer pitch position
+            const outPitch = match.pitchPositions[outId];
+            delete match.pitchPositions[outId];
+            if (outPitch) match.pitchPositions[inId] = outPitch;
+
+            // Bank minutes for the outgoing player
+            if (match.playerOnPitchSince[outId]) {
+                match.playerMinutes[outId] = (match.playerMinutes[outId] || 0) + Math.floor((Date.now() - match.playerOnPitchSince[outId]) / 1000);
+                match.playerOnPitchSince[outId] = null;
+            }
+            // Start minutes for incoming player if the clock is running
+            match.playerOnPitchSince[inId] = match.running ? Date.now() : null;
+
+            // Log the sub with current match clock label
+            const timeLabel = match.elapsed > 0
+                ? `${match.period === 1 ? 'H1' : 'H' + match.period} ${formatSeconds(match.elapsed)}`
+                : `H${match.period} 00:00`;
+            match.subs.push({ teamIdx, inId, outId, time: match.elapsed, period: match.period, timeLabel });
+
+            closeSubModal();
+            renderMatch();
+            showToast('BYTE!');
+        }
+
+        // --- Save match to history ---
+        function saveMatch() {
+            if (!match) return;
+            // Pause to bank time
+            if (match.running) toggleMatchTimer();
+            // Final per-player minutes
+            const playerMinutesSnapshot = {};
+            Object.keys(match.playerMinutes).forEach(pid => {
+                playerMinutesSnapshot[pid] = match.playerMinutes[pid] || 0;
+            });
+            // Coach snapshot (legacy flat list)
+            const coachSnapshot = match.coachIds.map(id => {
+                const c = coaches.find(x => x.id === id);
+                return c ? { id: c.id, name: c.name } : null;
+            }).filter(Boolean);
+            // Per-team coach assignments snapshot
+            const coachAssignmentsSnapshot = match.coachAssignments.map(arr =>
+                arr.map(cid => {
+                    const c = coaches.find(x => x.id === cid);
+                    return c ? { id: c.id, name: c.name } : null;
+                }).filter(Boolean)
+            );
+            // Player snapshot (for names in case roster changes)
+            const playerSnapshot = {};
+            const allPlayerIds = [
+                ...match.teams.flatMap(t => [...t.pitch, ...t.bench]),
+                ...match.out,
+            ];
+            allPlayerIds.forEach(pid => {
+                const p = getPlayerById(pid);
+                if (p) playerSnapshot[pid] = { name: p.name, level: p.level };
+            });
+
+            history.unshift({
+                id: Date.now(),
+                type: 'match',
+                name: match.name,
+                date: new Date().toLocaleDateString('sv-SE'),
+                matchData: {
+                    format: match.format,
+                    halves: match.halves,
+                    halfLength: match.halfLength,
+                    teamCount: match.teams.length,
+                    teams: match.teams.map(t => ({ pitch: [...t.pitch], bench: [...t.bench] })),
+                    out: [...match.out],
+                    coaches: coachSnapshot,
+                    coachAssignments: coachAssignmentsSnapshot,
+                    coachAllowMultiple: match.coachAllowMultiple,
+                    positions: { ...match.positions },
+                    pitchPositions: { ...match.pitchPositions },
+                    subs: match.subs.slice(),
+                    playerMinutes: playerMinutesSnapshot,
+                    playerSnapshot,
+                }
+            });
+            saveHistory();
+            renderHistory();
+            showToast('SPARAT!');
+        }
     </script>
 </body>
 </html>
