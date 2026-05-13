@@ -56,7 +56,17 @@ async function networkFirst(request) {
     }
     return response;
   } catch (error) {
-    return caches.match(request).then((cachedResponse) => cachedResponse || caches.match('./index.html'));
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+
+    const fallbackResponse = await caches.match('./index.html');
+    return fallbackResponse || new Response('Offline', {
+      status: 503,
+      statusText: 'Offline',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
   }
 }
 
